@@ -1,6 +1,7 @@
 import streamlit as st
 
 import config
+from epub_processor import extract_blocks
 
 
 # 页面标题
@@ -36,6 +37,19 @@ st.markdown(
     """
     这是一个用于 EPUB 行间双语翻译的 Streamlit 空壳页面。
 
-    阶段进度：MVP-0
+    阶段进度：MVP-1
     """
 )
+
+uploaded_file = st.file_uploader("上传 EPUB 文件", type=["epub"])
+if st.button("解析预览"):
+    if not uploaded_file:
+        st.warning("请先上传 EPUB 文件。")
+    else:
+        epub_bytes = uploaded_file.getvalue()
+        blocks = extract_blocks(epub_bytes)
+        st.success(f"解析完成，blocks 数量：{len(blocks)}")
+        st.subheader("前 8 条预览")
+        for block in blocks[:8]:
+            preview = block["text"][:80]
+            st.write(f"{block['block_id']} | {block['tag']} | {preview}")

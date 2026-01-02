@@ -26,9 +26,15 @@ async def _call_model(client: httpx.AsyncClient, payload: dict) -> str:
                     json=payload,
                     timeout=config.DEFAULT_TIMEOUT,
                 )
-                if resp.status_code in {429, 500, 502, 503, 504}:
-                    raise TranslationError(f"server busy: {resp.status_code}")
-                resp.raise_for_status()
+                if resp.status_code != 200:
+                    body_snippet = resp.text[:200]
+                    if resp.status_code in {429, 500, 502, 503, 504}:
+                        raise TranslationError(
+                            f"server busy: {resp.status_code}; body_snippet={body_snippet}"
+                        )
+                    raise TranslationError(
+                        f"bad status: {resp.status_code}; body_snippet={body_snippet}"
+                    )
                 try:
                     data = resp.json()
                 except Exception as exc:
@@ -45,6 +51,37 @@ async def _call_model(client: httpx.AsyncClient, payload: dict) -> str:
             except Exception as exc:
                 raise TranslationError(f"unexpected error: {exc}")
     raise TranslationError("exceeded retries")
+
+
+def extract_json_array(text: str) -> list:
+    # 模型偶尔会输出 Markdown 包装或夹带说明，先容错提取 JSON 避免解析失败
+    raw_text = text
+    cleaned = text.strip()
+    if "```" in cleaned:
+        lines = []
+        for line in cleaned.splitlines():
+            if line.strip().startswith("```"):
+                continue
+            lines.append(line)
+        cleaned = "\n".join(lines).strip()
+
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    candidate = cleaned
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start : end + 1]
+
+    try:
+        parsed = json.loads(candidate)
+    except Exception as exc:
+        snippet = raw_text[:200]
+        raise TranslationError(
+            f"response json parse failed: {exc}; 原始返回片段前 200 字符: {snippet}"
+        )
+
+    if not isinstance(parsed, list):
+        raise TranslationError("response is not a list")
+    return parsed
 
 
 def _chunk_list(items: List[dict], size: int) -> List[List[dict]]:
@@ -90,9 +127,7 @@ async def translate_batches(
             }
             try:
                 content = await _call_model(client, payload)
-                parsed = json.loads(content)
-                if not isinstance(parsed, list):
-                    raise TranslationError("response is not a list")
+                parsed = extract_json_array(content)
                 received_ids = set()
                 for item in parsed:
                     if not isinstance(item, dict) or "id" not in item or "translation" not in item:

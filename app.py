@@ -101,6 +101,107 @@ if st.button("缓存自检"):
     st.json(result)
 
 
+st.subheader("翻译 EPUB（MVP-4）")
+max_blocks = st.number_input(
+    "max_blocks（0 表示不限制）",
+    min_value=0,
+    value=50,
+    step=1,
+)
+if st.button("开始翻译（MVP-4）"):
+    if not uploaded_file:
+        st.warning("请先上传 EPUB 文件。")
+    elif not api_key:
+        st.warning("请先填写 API Key。")
+    else:
+        start_ts = time.time()
+        epub_bytes = uploaded_file.getvalue()
+        blocks = extract_blocks(epub_bytes)
+        if max_blocks > 0:
+            blocks = blocks[: int(max_blocks)]
+
+        if not blocks:
+            st.warning("未解析到可翻译的 blocks。")
+        else:
+            params = {"temperature": float(temperature)}
+            # params_json 必须稳定序列化，否则同一参数顺序或空白不同会导致缓存键不一致、命中失效
+            params_json = json.dumps(params, sort_keys=True, separators=(",", ":"))
+
+            for block in blocks:
+                # 缓存键必须包含 model/prompt_version/params_json，避免不同模型或提示参数共享同一缓存
+                block["cache_key"] = make_cache_key(
+                    block["text_hash"], model, config.PROMPT_VERSION, params_json
+                )
+
+            cache_hits = bulk_get(config.DB_PATH, [b["cache_key"] for b in blocks])
+            results = {}
+            missing_blocks = []
+            cache_hit_count = 0
+            for block in blocks:
+                cached_translation = cache_hits.get(block["cache_key"])
+                if cached_translation is not None:
+                    results[block["block_id"]] = cached_translation
+                    cache_hit_count += 1
+                else:
+                    missing_blocks.append(block)
+
+            failures = []
+            miss_count = len(missing_blocks)
+            if missing_blocks:
+                fresh_results, failures = asyncio.run(
+                    translate_batches(
+                        missing_blocks,
+                        api_key=api_key,
+                        base_url=base_url,
+                        model=model,
+                        temperature=float(temperature),
+                        batch_size=int(batch_size),
+                        concurrency=int(concurrency),
+                    )
+                )
+                results.update(fresh_results)
+
+                now_ts = int(time.time())
+                rows = []
+                for block in missing_blocks:
+                    translation = fresh_results.get(block["block_id"])
+                    if translation is None:
+                        continue
+                    rows.append(
+                        {
+                            "cache_key": block["cache_key"],
+                            "text_hash": block["text_hash"],
+                            "model": model,
+                            "prompt_version": config.PROMPT_VERSION,
+                            "params_json": params_json,
+                            "translation": translation,
+                            "created_at": now_ts,
+                        }
+                    )
+                set_many(config.DB_PATH, rows)
+
+            elapsed = time.time() - start_ts
+            st.success("翻译完成")
+            st.write(f"本次处理 blocks 数：{len(blocks)}")
+            st.write(f"缓存命中数：{cache_hit_count}")
+            st.write(f"未命中数（请求翻译数）：{miss_count}")
+            st.write(f"失败数：{len(failures)}")
+            st.write(f"耗时：{elapsed:.2f} 秒")
+
+            if failures:
+                st.write("失败详情（block_id / 原文前 50 字 / 错误原因）：")
+                st.table(
+                    [
+                        {
+                            "block_id": f["id"],
+                            "text_snippet": f.get("text_snippet", ""),
+                            "reason": f.get("reason", ""),
+                        }
+                        for f in failures
+                    ]
+                )
+
+
 st.subheader("翻译自测（MVP-3）")
 if st.button("翻译自测（MVP-3）"):
     if not api_key:

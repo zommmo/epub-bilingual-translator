@@ -12,7 +12,9 @@ SYSTEM_PROMPT = (
     "You are a translation engine that only outputs JSON. "
     'Return a JSON array like [{"id":"...","translation":"..."}]. '
     "No explanations. Cover all input ids. "
-    "Translations must be Chinese."
+    "Translations must be Chinese. "
+    "Do not output Markdown or use ```json code fences. "
+    "Output must start with [ and end with ], with no extra characters."
 )
 DEFAULT_TIMEOUT = 60
 MAX_RETRIES = 5

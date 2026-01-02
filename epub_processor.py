@@ -80,3 +80,106 @@ def extract_blocks(epub_bytes: bytes) -> list[dict]:
         os.remove(temp_path)
 
     return blocks
+
+
+def apply_translation_css(book) -> None:
+    # 统一用 class + CSS 控制样式，避免大量 inline style 难维护也不易全局调整
+    css_text = ".trans-text { color:#666; font-size:0.92em; margin:0.25em 0 1em 0; }"
+    for item in book.spine:
+        item_id = item[0] if isinstance(item, (tuple, list)) else item
+        html_item = book.get_item_with_id(item_id)
+        if not html_item or (
+            html_item.get_type() != ebooklib.ITEM_DOCUMENT and not isinstance(html_item, epub.EpubHtml)
+        ):
+            continue
+        soup = BeautifulSoup(html_item.get_content(), "lxml")
+        if soup.find("style", string=lambda s: s and ".trans-text" in s):
+            continue
+        head = soup.head
+        if head is None:
+            head = soup.new_tag("head")
+            if soup.html:
+                soup.html.insert(0, head)
+            else:
+                soup.insert(0, head)
+        style_tag = soup.new_tag("style")
+        style_tag.string = css_text
+        head.append(style_tag)
+        html_item.set_content(str(soup).encode("utf-8"))
+
+
+def inject_translations(epub_bytes: bytes, translations: dict[str, str]) -> bytes:
+    """
+    把翻译内容插入到 EPUB 文档中，返回新的 EPUB bytes。
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as temp_file:
+        temp_file.write(epub_bytes)
+        temp_path = temp_file.name
+
+    output_path = None
+    try:
+        book = epub.read_epub(temp_path)
+        for spine_item in book.spine:
+            item_id = (
+                spine_item[0] if isinstance(spine_item, (tuple, list)) else spine_item
+            )
+            item = book.get_item_with_id(item_id)
+            if not item or (
+                item.get_type() != ebooklib.ITEM_DOCUMENT and not isinstance(item, epub.EpubHtml)
+            ):
+                continue
+
+            doc_name = item.get_name()
+            soup = BeautifulSoup(item.get_content(), "lxml")
+            index = 0
+            for node in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li"]):
+                normalized = _normalize_text(node.get_text(" ", strip=True))
+                if _is_noise(normalized):
+                    continue
+                # 必须复用 extract_blocks 的定位规则，否则翻译会错位到别的段落
+                block_id = f"{doc_name}::{node.name}::{index}"
+                translation = translations.get(block_id)
+                if translation:
+                    trans_text = translation
+                else:
+                    trans_text = "[未翻译]"
+
+                trans_tag = soup.new_tag("p")
+                trans_tag["class"] = "trans-text"
+                trans_tag.string = trans_text
+                node.insert_after(trans_tag)
+                index += 1
+
+            item.set_content(str(soup).encode("utf-8"))
+
+        apply_translation_css(book)
+
+        def _ensure_toc_uids(toc):
+            # lxml 生成 NCX 时需要 uid 非空，部分 toc 条目 uid 可能为 None，这里补齐唯一 uid 以避免写出报错
+            counter = {"n": 0}
+
+            def walk(node):
+                if isinstance(node, (list, tuple)):
+                    for child in node:
+                        walk(child)
+                    return
+                if hasattr(node, "uid") and getattr(node, "uid", None) is None:
+                    counter["n"] += 1
+                    node.uid = f"toc_uid_{counter['n']}"
+                children = getattr(node, "children", None)
+                if children:
+                    walk(children)
+
+            walk(toc)
+
+        _ensure_toc_uids(book.toc)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as out_file:
+            output_path = out_file.name
+        epub.write_epub(output_path, book)
+        with open(output_path, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(temp_path)
+        if output_path and os.path.exists(output_path):
+            os.remove(output_path)

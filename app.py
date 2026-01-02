@@ -1,13 +1,14 @@
 import asyncio
 import hashlib
 import json
+import os
 import time
 
 import streamlit as st
 
 import config
 from database import bulk_get, init_db, make_cache_key, set_many
-from epub_processor import extract_blocks
+from epub_processor import extract_blocks, inject_translations
 from translator import translate_batches
 
 
@@ -177,16 +178,40 @@ if st.button("开始翻译（MVP-4）"):
                             "translation": translation,
                             "created_at": now_ts,
                         }
-                    )
+                )
                 set_many(config.DB_PATH, rows)
+
+            translated_count = sum(
+                1 for block in blocks if results.get(block["block_id"]) is not None
+            )
+            placeholder_count = len(blocks) - translated_count
+
+            # 回填译文时必须复用同一套定位规则（doc_name/tag/index），否则段落会错位
+            output_bytes = inject_translations(epub_bytes, results)
+            output_dir = "output"
+            os.makedirs(output_dir, exist_ok=True)
+            base_name, _ = os.path.splitext(uploaded_file.name)
+            output_name = f"{base_name}_bilingual.epub"
+            output_path = os.path.join(output_dir, output_name)
+            with open(output_path, "wb") as f:
+                f.write(output_bytes)
 
             elapsed = time.time() - start_ts
             st.success("翻译完成")
             st.write(f"本次处理 blocks 数：{len(blocks)}")
             st.write(f"缓存命中数：{cache_hit_count}")
             st.write(f"未命中数（请求翻译数）：{miss_count}")
+            st.write(f"插入译文数量：{translated_count}")
+            st.write(f"未翻译占位数量：{placeholder_count}")
             st.write(f"失败数：{len(failures)}")
-            st.write(f"耗时：{elapsed:.2f} 秒")
+            st.write(f"总耗时：{elapsed:.2f} 秒")
+
+            st.download_button(
+                "下载双语 EPUB",
+                data=output_bytes,
+                file_name=output_name,
+                mime="application/epub+zip",
+            )
 
             if failures:
                 st.write("失败详情（block_id / 原文前 50 字 / 错误原因）：")

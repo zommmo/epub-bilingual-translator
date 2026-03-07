@@ -14,6 +14,7 @@ from provider_tools import fetch_models, health_check, normalize_base_url
 from providers import BUILTIN_PROVIDERS
 from settings_store import load_settings, save_settings
 from translator import translate_batches
+from i18n import get_i18n
 
 
 def _slugify(name: str) -> str:
@@ -31,6 +32,7 @@ def _load_initial_settings() -> dict:
         "concurrency": int(config.CONCURRENCY),
         "max_blocks": 50,
         "custom_prompt": "",
+        "language": "zh",
     }
     loaded = load_settings()
     if not isinstance(loaded, dict):
@@ -70,15 +72,17 @@ def _empty_job_state() -> dict:
     }
 
 
-# 页面标题
-st.title("EPUB 行间双语翻译器")
-
 # 初始化缓存数据库
 init_db(config.DB_PATH)
 
 if "settings" not in st.session_state:
     st.session_state.settings = _load_initial_settings()
 settings = st.session_state.settings
+
+# 页面标题
+lang = settings.get("language", "zh")
+
+st.title(get_i18n("app_title", lang))
 if "models" not in st.session_state:
     st.session_state.models = None
 if "models_base_url" not in st.session_state:
@@ -91,8 +95,20 @@ if "custom_prompt" not in st.session_state:
     st.session_state.custom_prompt = settings.get("custom_prompt", "")
 
 # 侧边栏配置区域
-st.sidebar.header("配置")
-api_key = st.sidebar.text_input("API Key", type="password")
+st.sidebar.header(get_i18n("sidebar_config", lang))
+
+# Language Selection
+selected_lang = st.sidebar.selectbox(
+    get_i18n("language_label", lang),
+    ["zh", "en"],
+    index=0 if settings.get("language", "zh") == "zh" else 1
+)
+if selected_lang != settings.get("language"):
+    settings["language"] = selected_lang
+    save_settings(settings)
+    st.rerun()
+
+api_key = st.sidebar.text_input(get_i18n("api_key", lang), type="password")
 
 custom_providers = settings.get("custom_providers", [])
 all_providers = [dict(p) for p in BUILTIN_PROVIDERS] + [dict(p) for p in custom_providers]
@@ -104,7 +120,7 @@ if settings.get("selected_provider_id") not in provider_ids:
     save_settings(settings)
 
 selected_provider_id = st.sidebar.selectbox(
-    "Provider",
+    get_i18n("provider_label", lang),
     options=provider_ids,
     index=provider_ids.index(settings["selected_provider_id"])
     if settings["selected_provider_id"] in provider_ids
@@ -128,19 +144,19 @@ if st.session_state.models_base_url != base_url:
     st.session_state.models_base_url = base_url
     st.session_state.pop("model_select", None)
 
-if st.sidebar.button("获取模型列表"):
+if st.sidebar.button(get_i18n("fetch_models", lang)):
     if not api_key:
-        st.sidebar.warning("请先填写 API Key。")
+        st.sidebar.warning(get_i18n("warn_empty_api_key", lang))
     elif not base_url:
-        st.sidebar.warning("请先填写 Base URL。")
+        st.sidebar.warning(get_i18n("warn_empty_base_url", lang))
     else:
         models, error = fetch_models(base_url, api_key)
         if models is None:
-            st.sidebar.error(f"获取失败：{error}")
+            st.sidebar.error(get_i18n("fetch_models_failed", lang).format(error))
         else:
             st.session_state.models = models
             st.session_state.models_base_url = base_url
-            st.sidebar.success(f"获取成功，共 {len(models)} 个模型。")
+            st.sidebar.success(get_i18n("fetch_models_success", lang).format(len(models)))
 
 models = st.session_state.models or []
 if models:
@@ -148,56 +164,66 @@ if models:
         st.session_state.pop("model_select", None)
     default_model = str(settings.get("model", config.MODEL))
     model_index = models.index(default_model) if default_model in models else 0
-    model = st.sidebar.selectbox("Model", options=models, index=model_index, key="model_select")
+    model = st.sidebar.selectbox(get_i18n("model_label", lang), options=models, index=model_index, key="model_select")
 else:
     model = st.sidebar.text_input(
-        "Model", value=str(settings.get("model", config.MODEL)), key="model_input"
+        get_i18n("model_label", lang), value=str(settings.get("model", config.MODEL)), key="model_input"
     )
-custom_prompt = st.sidebar.text_area(
-    "自定义翻译风格 Prompt（可选）",
-    value=st.session_state.custom_prompt,
-    help="只影响翻译风格，不要写 JSON 格式要求；留空则使用默认风格",
-    key="custom_prompt",
-)
-prompt_hash = make_prompt_hash(custom_prompt)
-st.sidebar.caption(f"prompt_hash: {prompt_hash[:8]}...")
-temperature = st.sidebar.number_input(
-    "temperature（随机性）",
-    min_value=0.0,
-    max_value=2.0,
-    value=float(settings.get("temperature", config.TEMPERATURE)),
-    step=0.1,
-)
-batch_size = st.sidebar.number_input(
-    "batch_size（每批条数）",
-    min_value=1,
-    value=int(settings.get("batch_size", config.BATCH_SIZE)),
-    step=1,
-)
-concurrency = st.sidebar.number_input(
-    "concurrency（并发数）",
-    min_value=1,
-    value=int(settings.get("concurrency", config.CONCURRENCY)),
-    step=1,
-)
+with st.sidebar.expander(get_i18n("advanced_settings", lang)):
+    custom_prompt = st.text_area(
+        get_i18n("custom_prompt_label", lang),
+        value=st.session_state.custom_prompt,
+        help=get_i18n("custom_prompt_help", lang),
+        key="custom_prompt",
+    )
+    prompt_hash = make_prompt_hash(custom_prompt)
+    st.caption(f"prompt_hash: {prompt_hash[:8]}...")
+    temperature = st.number_input(
+        get_i18n("temperature_label", lang),
+        min_value=0.0,
+        max_value=2.0,
+        value=float(settings.get("temperature", config.TEMPERATURE)),
+        step=0.1,
+    )
+    batch_size = st.number_input(
+        get_i18n("batch_size_label", lang),
+        min_value=1,
+        value=int(settings.get("batch_size", config.BATCH_SIZE)),
+        step=1,
+    )
+    concurrency = st.number_input(
+        get_i18n("concurrency_label", lang),
+        min_value=1,
+        value=int(settings.get("concurrency", config.CONCURRENCY)),
+        step=1,
+    )
+    max_blocks = st.number_input(
+        get_i18n("max_blocks_label", lang),
+        min_value=0,
+        value=int(settings.get("max_blocks", 50)),
+        step=1,
+    )
+    if int(max_blocks) != settings.get("max_blocks"):
+        settings["max_blocks"] = int(max_blocks)
+        save_settings(settings)
 
-if st.sidebar.button("测试连接"):
+if st.sidebar.button(get_i18n("test_connection", lang)):
     if not api_key:
-        st.sidebar.warning("请先填写 API Key。")
+        st.sidebar.warning(get_i18n("warn_empty_api_key", lang))
     elif not base_url:
-        st.sidebar.warning("请先填写 Base URL。")
+        st.sidebar.warning(get_i18n("warn_empty_base_url", lang))
     elif not model:
-        st.sidebar.warning("请先填写 Model。")
+        st.sidebar.warning(get_i18n("warn_empty_model", lang))
     else:
         st.session_state.health_check_result = health_check(base_url, api_key, model)
 
 health_result = st.session_state.health_check_result
 if health_result:
     if health_result.get("ok"):
-        st.sidebar.success("连接正常")
+        st.sidebar.success(get_i18n("connection_ok", lang))
     else:
-        st.sidebar.error("连接失败")
-    with st.sidebar.expander("连接详情", expanded=True):
+        st.sidebar.error(get_i18n("connection_failed", lang))
+    with st.sidebar.expander(get_i18n("connection_details", lang), expanded=True):
         st.json(health_result)
 
 settings_changed = False
@@ -215,12 +241,12 @@ for key, val in [
 if settings_changed:
     save_settings(settings)
 
-with st.sidebar.expander("自定义 Provider 管理"):
+with st.sidebar.expander(get_i18n("custom_provider_mgr", lang)):
     custom_ids = [p["id"] for p in settings.get("custom_providers", [])]
     custom_selection = st.selectbox(
-        "选择自定义 Provider",
+        get_i18n("select_custom_provider", lang),
         options=["__new__"] + custom_ids,
-        format_func=lambda pid: "新建" if pid == "__new__" else next(
+        format_func=lambda pid: get_i18n("new_provider", lang) if pid == "__new__" else next(
             (p["name"] for p in settings.get("custom_providers", []) if p["id"] == pid),
             pid,
         ),
@@ -231,7 +257,7 @@ with st.sidebar.expander("自定义 Provider 管理"):
         else None
     )
     custom_name = st.text_input(
-        "名称",
+        get_i18n("name_label", lang),
         value=selected_custom["name"] if selected_custom else "",
         key=f"custom_name_{custom_selection}",
     )
@@ -241,12 +267,12 @@ with st.sidebar.expander("自定义 Provider 管理"):
         key=f"custom_base_{custom_selection}",
     )
 
-    if st.button("保存/更新自定义 Provider"):
+    if st.button(get_i18n("save_custom_provider", lang)):
         normalized_custom_url = normalize_base_url(custom_base_url)
         if not custom_name.strip():
-            st.warning("请填写名称。")
+            st.warning(get_i18n("warn_empty_name", lang))
         elif not normalized_custom_url:
-            st.warning("请填写 Base URL。")
+            st.warning(get_i18n("warn_empty_base_url", lang))
         else:
             base_id = _slugify(custom_name)
             existing_ids = {p["id"] for p in settings.get("custom_providers", [])} | {
@@ -277,36 +303,36 @@ with st.sidebar.expander("自定义 Provider 管理"):
             settings["custom_providers"] = updated
             settings["selected_provider_id"] = provider_id
             save_settings(settings)
-            st.success("已保存自定义 Provider。")
+            st.success(get_i18n("saved_custom_provider", lang))
 
-    if custom_selection != "__new__" and st.button("删除自定义 Provider"):
+    if custom_selection != "__new__" and st.button(get_i18n("delete_custom_provider", lang)):
         settings["custom_providers"] = [
             p for p in settings.get("custom_providers", []) if p["id"] != custom_selection
         ]
         if settings.get("selected_provider_id") == custom_selection:
             settings["selected_provider_id"] = "openai"
         save_settings(settings)
-        st.success("已删除自定义 Provider。")
+        st.success(get_i18n("deleted_custom_provider", lang))
 
 # 主区域说明
-st.caption("上传 EPUB → 翻译并回填 → 导出双语 EPUB")
+st.caption(get_i18n("app_description", lang))
 
-uploaded_file = st.file_uploader("上传 EPUB 文件", type=["epub"])
-if st.button("解析预览"):
+uploaded_file = st.file_uploader(get_i18n("upload_epub", lang), type=["epub"])
+if st.button(get_i18n("parse_preview", lang)):
     if not uploaded_file:
-        st.warning("请先上传 EPUB 文件。")
+        st.warning(get_i18n("warn_empty_epub", lang))
     else:
         epub_bytes = uploaded_file.getvalue()
         blocks = extract_blocks(epub_bytes)
-        st.success(f"解析完成，blocks 数量：{len(blocks)}")
-        st.subheader("前 8 条预览")
+        st.success(get_i18n("parse_success", lang).format(len(blocks)))
+        st.subheader(get_i18n("preview_top_8", lang))
         for block in blocks[:8]:
             preview = block["text"][:80]
             st.write(f"{block['block_id']} | {block['tag']} | {preview}")
 
 
-st.subheader("缓存自检")
-if st.button("缓存自检"):
+st.subheader(get_i18n("cache_smoke_test", lang))
+if st.button(get_i18n("cache_smoke_test", lang)):
     demo_text = "This is a cache smoke test."
     text_hash = hashlib.sha256(demo_text.encode("utf-8")).hexdigest()
     params_json = json.dumps(
@@ -340,46 +366,38 @@ if st.button("缓存自检"):
     )
 
     result = bulk_get(config.DB_PATH, [cache_key, "non-existent-key"])
-    st.success("缓存写入并读取成功")
+    st.success(get_i18n("cache_test_success", lang))
     st.json(result)
 
 
-st.subheader("翻译 EPUB")
-max_blocks = st.number_input(
-    "max_blocks（0 表示不限制）",
-    min_value=0,
-    value=int(settings.get("max_blocks", 50)),
-    step=1,
-)
-if int(max_blocks) != settings.get("max_blocks"):
-    settings["max_blocks"] = int(max_blocks)
-    save_settings(settings)
+st.subheader(get_i18n("translate_epub_title", lang))
 job = st.session_state.job
 col_start, col_pause, col_resume, col_stop = st.columns(4)
-start_clicked = col_start.button("开始翻译", disabled=job["status"] == "running")
-pause_clicked = col_pause.button("暂停", disabled=job["status"] != "running")
-resume_clicked = col_resume.button("继续", disabled=job["status"] != "paused")
-stop_clicked = col_stop.button("停止并清空", disabled=job["status"] == "idle")
+start_clicked = col_start.button(get_i18n("start_translation", lang), disabled=job["status"] == "running")
+pause_clicked = col_pause.button(get_i18n("pause", lang), disabled=job["status"] != "running")
+resume_clicked = col_resume.button(get_i18n("resume", lang), disabled=job["status"] != "paused")
+stop_clicked = col_stop.button(get_i18n("stop_clear", lang), disabled=job["status"] == "idle")
 
 if stop_clicked:
     st.session_state.job = _empty_job_state()
     job = st.session_state.job
-    st.info("已停止并清空任务（不会删除缓存）。")
+    st.info(get_i18n("stopped_info", lang))
 
 if start_clicked:
     if not uploaded_file:
-        st.warning("请先上传 EPUB 文件。")
+        st.warning(get_i18n("warn_empty_epub", lang))
     elif not api_key:
-        st.warning("请先填写 API Key。")
+        st.warning(get_i18n("warn_empty_api_key", lang))
     else:
         start_ts = time.time()
         epub_bytes = uploaded_file.getvalue()
         blocks = extract_blocks(epub_bytes)
-        if max_blocks > 0:
-            blocks = blocks[: int(max_blocks)]
+        max_blocks_val = int(settings.get("max_blocks", 50))
+        if max_blocks_val > 0:
+            blocks = blocks[: max_blocks_val]
 
         if not blocks:
-            st.warning("未解析到可翻译的 blocks。")
+            st.warning(get_i18n("warn_no_blocks", lang))
         else:
             params = {"temperature": float(temperature)}
             # params_json 必须稳定序列化，否则同一参数顺序或空白不同会导致缓存键不一致、命中失效
@@ -438,7 +456,7 @@ if start_clicked:
 
 if pause_clicked and job["status"] == "running":
     job["status"] = "paused"
-    st.info("已请求暂停，将在当前批次结束后生效。")
+    st.info(get_i18n("pause_requested", lang))
 
 if resume_clicked and job["status"] == "paused":
     job["status"] = "running"
@@ -456,7 +474,7 @@ if job["status"] != "idle":
         elapsed = time.time() - start_time
         if processed_count > 0:
             remaining = elapsed / processed_count * (total_count - processed_count)
-            remaining_text = f"{remaining:.2f} 秒"
+            remaining_text = f"{remaining:.2f} s"
         else:
             remaining_text = "—"
         cache_hit_count = job.get("hit_count", 0)
@@ -465,20 +483,19 @@ if job["status"] != "idle":
             miss_count = max(total_count - cache_hit_count, 0)
         success_count = len(job.get("results_map") or {})
         failure_count = len(job.get("failures") or [])
-        progress_info.markdown(
-            "\n".join(
-                [
-                    f"- 总 blocks：{total_count}",
-                    f"- 已处理 blocks：{processed_count}",
-                    f"- 缓存命中数：{cache_hit_count}",
-                    f"- 请求翻译数：{miss_count}",
-                    f"- 已完成翻译数：{success_count}",
-                    f"- 失败数：{failure_count}",
-                    f"- 已耗时：{elapsed:.2f} 秒",
-                    f"- 预计剩余时间：{remaining_text}",
-                ]
-            )
-        )
+        
+        with progress_info.container():
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(get_i18n("stats_total_blocks", lang), total_count)
+            c2.metric(get_i18n("stats_processed_blocks", lang), processed_count)
+            c3.metric(get_i18n("stats_cache_hits", lang), cache_hit_count)
+            c4.metric(get_i18n("stats_misses", lang), miss_count)
+            
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric(get_i18n("stats_translated", lang), success_count)
+            c6.metric(get_i18n("stats_failures", lang), failure_count)
+            c7.metric(get_i18n("stats_elapsed", lang), f"{elapsed:.2f}")
+            c8.metric(get_i18n("stats_remaining_time", lang), remaining_text)
 
     update_progress()
 
@@ -544,7 +561,7 @@ if job["status"] == "running":
             st.rerun()
 
 if job["status"] == "paused":
-    st.info(f"已暂停，还剩 {len(job.get('pending_blocks', []))} 段未翻译。")
+    st.info(get_i18n("paused_info", lang).format(len(job.get('pending_blocks', []))))
 
 if job["status"] == "done":
     total_count = job.get("total_blocks", 0)
@@ -567,25 +584,29 @@ if job["status"] == "done":
         job["output_bytes"] = output_bytes
 
     elapsed = time.time() - (job.get("start_time") or time.time())
-    st.success("翻译完成")
-    st.write(f"本次处理 blocks 数：{total_count}")
-    st.write(f"缓存命中数：{cache_hit_count}")
-    st.write(f"未命中数（请求翻译数）：{miss_count}")
-    st.write(f"插入译文数量：{translated_count}")
-    st.write(f"未翻译占位数量：{placeholder_count}")
-    st.write(f"失败数：{len(job.get('failures') or [])}")
-    st.write(f"总耗时：{elapsed:.2f} 秒")
+    st.success(get_i18n("translation_completed", lang))
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric(get_i18n("stats_final_total", lang), total_count)
+    c2.metric(get_i18n("stats_cache_hits", lang), cache_hit_count)
+    c3.metric(get_i18n("stats_misses", lang), miss_count)
+    
+    c4, c5, c6, c7 = st.columns(4)
+    c4.metric(get_i18n("stats_final_inserted", lang), translated_count)
+    c5.metric(get_i18n("stats_final_placeholders", lang), placeholder_count)
+    c6.metric(get_i18n("stats_failures", lang), len(job.get('failures') or []))
+    c7.metric(get_i18n("stats_elapsed", lang), f"{elapsed:.2f}")
 
     if job.get("output_bytes") is not None:
         st.download_button(
-            "下载双语 EPUB",
+            get_i18n("download_bilingual_epub", lang),
             data=job["output_bytes"],
             file_name=job.get("output_name") or "bilingual.epub",
             mime="application/epub+zip",
         )
 
     if job.get("failures"):
-        st.write("失败详情（block_id / 原文前 50 字 / 错误原因）：")
+        st.write(get_i18n("failure_details", lang))
         st.table(
             [
                 {
@@ -598,10 +619,10 @@ if job["status"] == "done":
         )
 
 
-st.subheader("翻译自测（MVP-3）")
-if st.button("翻译自测（MVP-3）"):
+st.subheader(get_i18n("translate_self_test", lang))
+if st.button(get_i18n("translate_self_test", lang)):
     if not api_key:
-        st.warning("请先填写 API Key。")
+        st.warning(get_i18n("warn_empty_api_key", lang))
     else:
         # 构造三条示例段落，用固定 block_id 和 text_hash 便于验证
         demo_blocks = [
@@ -634,8 +655,8 @@ if st.button("翻译自测（MVP-3）"):
                 custom_prompt=custom_prompt,
             )
         )
-        st.success("翻译完成")
-        st.write("成功映射：")
+        st.success(get_i18n("translation_completed", lang))
+        st.write(get_i18n("success_mapping", lang))
         st.json(results)
-        st.write("失败记录：")
+        st.write(get_i18n("failure_records", lang))
         st.json(failures)

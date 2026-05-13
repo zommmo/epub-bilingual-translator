@@ -82,11 +82,16 @@ def fetch_models(
     return models, None
 
 
-async def _infer_once(base_url: str, api_key: str, model: str) -> None:
+async def _infer_once(
+    base_url: str,
+    api_key: str,
+    model: str,
+    target_language: str = config.DEFAULT_TARGET_LANGUAGE,
+) -> None:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     user_payload = [{"id": "healthcheck", "text": "Hello"}]
     messages = [
-        {"role": "system", "content": config.SYSTEM_PROMPT},
+        {"role": "system", "content": config.build_system_prompt(target_language)},
         {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
     ]
     payload = {
@@ -104,7 +109,12 @@ async def _infer_once(base_url: str, api_key: str, model: str) -> None:
         raise TranslationError(f"response mismatch; body_snippet={content[:200]}")
 
 
-def health_check(base_url: str, api_key: str, model: str) -> dict:
+def health_check(
+    base_url: str,
+    api_key: str,
+    model: str,
+    target_language: str = config.DEFAULT_TARGET_LANGUAGE,
+) -> dict:
     start_ts = time.time()
     normalized = normalize_base_url(base_url)
     result = {
@@ -125,7 +135,7 @@ def health_check(base_url: str, api_key: str, model: str) -> dict:
     infer_error = None
     if normalized and model:
         try:
-            asyncio.run(_infer_once(normalized, api_key, model))
+            asyncio.run(_infer_once(normalized, api_key, model, target_language))
             result["infer_ok"] = True
         except Exception as exc:
             infer_error = str(exc)

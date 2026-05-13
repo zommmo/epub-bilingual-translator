@@ -55,6 +55,14 @@ I18N = {
         "zh": "只影响翻译风格，不要写 JSON 格式要求；留空则使用默认风格",
         "en": "Restricts only translation style, DO NOT include JSON formatting rules; leave blank for default style."
     },
+    "target_language_label": {
+        "zh": "目标语言",
+        "en": "Target Language"
+    },
+    "target_language_help": {
+        "zh": "译文输出语言；会参与缓存 key，切换语言不会复用旧语言缓存。",
+        "en": "Translation output language. It is included in the cache key, so different languages use separate caches."
+    },
     "temperature_label": {
         "zh": "温度（随机性）",
         "en": "Temperature (Randomness)"

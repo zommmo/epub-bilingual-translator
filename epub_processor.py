@@ -1,5 +1,6 @@
 import hashlib
 import os
+import posixpath
 import tempfile
 from typing import Iterable
 
@@ -83,8 +84,21 @@ def extract_blocks(epub_bytes: bytes) -> list[dict]:
 
 
 def apply_translation_css(book) -> None:
-    # 统一用 class + CSS 控制样式，避免大量 inline style 难维护也不易全局调整
+    # 统一用 class + CSS 资源控制样式。EbookLib 会重建 HTML head，直接写 style 标签会被丢弃。
     css_text = ".trans-text { color:#666; font-size:0.92em; margin:0.25em 0 1em 0; }"
+    css_uid = "trans_text_style"
+    css_file_name = "styles/trans-text.css"
+
+    if book.get_item_with_id(css_uid) is None:
+        book.add_item(
+            epub.EpubItem(
+                uid=css_uid,
+                file_name=css_file_name,
+                media_type="text/css",
+                content=css_text,
+            )
+        )
+
     for item in book.spine:
         item_id = item[0] if isinstance(item, (tuple, list)) else item
         html_item = book.get_item_with_id(item_id)
@@ -92,20 +106,10 @@ def apply_translation_css(book) -> None:
             html_item.get_type() != ebooklib.ITEM_DOCUMENT and not isinstance(html_item, epub.EpubHtml)
         ):
             continue
-        soup = BeautifulSoup(html_item.get_content(), "lxml")
-        if soup.find("style", string=lambda s: s and ".trans-text" in s):
-            continue
-        head = soup.head
-        if head is None:
-            head = soup.new_tag("head")
-            if soup.html:
-                soup.html.insert(0, head)
-            else:
-                soup.insert(0, head)
-        style_tag = soup.new_tag("style")
-        style_tag.string = css_text
-        head.append(style_tag)
-        html_item.set_content(str(soup).encode("utf-8"))
+        doc_dir = posixpath.dirname(html_item.get_name()) or "."
+        href = posixpath.relpath(css_file_name, start=doc_dir)
+        if not any(link.get("href") == href for link in getattr(html_item, "links", [])):
+            html_item.add_link(href=href, rel="stylesheet", type="text/css")
 
 
 def inject_translations(epub_bytes: bytes, translations: dict[str, str]) -> bytes:

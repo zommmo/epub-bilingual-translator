@@ -97,12 +97,14 @@ async def translate_batches(
     batch_size: int,
     concurrency: int,
     custom_prompt: str = "",
+    target_language: str = config.DEFAULT_TARGET_LANGUAGE,
 ) -> Tuple[Dict[str, str], List[dict]]:
     """
     批量翻译：返回成功映射与失败列表。
     返回 mapping: id -> translation
     failures: {id, reason, text_snippet}
     custom_prompt: 仅作为风格说明，系统提示保持固定以保证 JSON 解析稳定。
+    target_language: 目标语言名称，例如 Chinese、English、Japanese。
     """
 
     if not blocks:
@@ -123,7 +125,7 @@ async def translate_batches(
             if style_prompt:
                 user_content_prefix = f"翻译风格要求：{style_prompt}\n\n"
             messages = [
-                {"role": "system", "content": config.SYSTEM_PROMPT},
+                {"role": "system", "content": config.build_system_prompt(target_language)},
                 {
                     "role": "user",
                     "content": (

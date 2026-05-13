@@ -32,14 +32,22 @@ pip install -r requirements.txt
 
 ## 运行
 
+推荐使用项目自带脚本启动，它不依赖 shell 是否已激活虚拟环境：
+
+```bash
+./run_app.sh
+```
+
+也可以手动启动：
+
 ```bash
 streamlit run app.py
 ```
 
-如果系统没有 `streamlit` 命令，可以使用：
+如果系统没有 `streamlit` 命令，或虚拟环境从其他路径移动过，可以使用：
 
 ```bash
-.venv/bin/streamlit run app.py
+.venv/bin/python -m streamlit run app.py
 ```
 
 ## 使用说明

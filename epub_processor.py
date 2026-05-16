@@ -143,11 +143,11 @@ def inject_translations(epub_bytes: bytes, translations: dict[str, str]) -> byte
                 # 必须复用 extract_blocks 的定位规则，否则翻译会错位到别的段落
                 block_id = f"{doc_name}::{node.name}::{index}"
                 translation = translations.get(block_id)
-                if translation:
-                    trans_tag = soup.new_tag("p")
-                    trans_tag["class"] = "trans-text"
-                    trans_tag.string = translation
-                    node.insert_after(trans_tag)
+                trans_text = translation if translation else "[未翻译]"
+                trans_tag = soup.new_tag("p")
+                trans_tag["class"] = "trans-text"
+                trans_tag.string = trans_text
+                node.insert_after(trans_tag)
                 index += 1
 
             item.set_content(str(soup).encode("utf-8"))

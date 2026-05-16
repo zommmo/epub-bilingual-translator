@@ -29,6 +29,13 @@ def _slugify(name: str) -> str:
     return slug or "custom-provider"
 
 
+def _model_display_name(model_id: str) -> str:
+    model_name = str(model_id)
+    if model_name.startswith("models/"):
+        return model_name.removeprefix("models/")
+    return model_name
+
+
 def _load_initial_settings() -> dict:
     defaults = {
         "custom_providers": [],
@@ -71,6 +78,7 @@ st.markdown(
     /* 只隐藏 Deploy 按钮，保留 Settings 与侧边栏控制 */
     .stAppDeployButton { display: none !important; }
     [data-testid="stAppDeployButton"] { display: none !important; }
+    [data-testid="InputInstructions"] { display: none !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -156,7 +164,13 @@ if models:
         st.session_state.pop("model_select", None)
     default_model = str(settings.get("model", config.MODEL))
     model_index = models.index(default_model) if default_model in models else 0
-    model = st.sidebar.selectbox(get_i18n("model_label", lang), options=models, index=model_index, key="model_select")
+    model = st.sidebar.selectbox(
+        get_i18n("model_label", lang),
+        options=models,
+        index=model_index,
+        key="model_select",
+        format_func=_model_display_name,
+    )
 else:
     model = st.sidebar.text_input(
         get_i18n("model_label", lang), value=str(settings.get("model", config.MODEL)), key="model_input"

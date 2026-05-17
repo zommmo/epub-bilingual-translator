@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -43,6 +44,40 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(data["total_blocks"], 2)
             self.assertEqual(data["preview"][0]["text"], "Chapter One")
 
+    def test_preview_rejects_non_epub_filename(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            response = client.post(
+                "/api/preview",
+                files={"file": ("sample.txt", _build_epub_bytes(), "text/plain")},
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(".epub", response.json()["detail"])
+
+    def test_preview_rejects_empty_epub(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            response = client.post(
+                "/api/preview",
+                files={"file": ("empty.epub", b"", "application/epub+zip")},
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("empty", response.json()["detail"])
+
+    def test_preview_rejects_oversized_epub(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            with patch("api_app.MAX_UPLOAD_BYTES", 8):
+                response = client.post(
+                    "/api/preview",
+                    files={"file": ("large.epub", b"0" * 9, "application/epub+zip")},
+                )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("too large", response.json()["detail"])
+
     def test_job_lifecycle_and_download(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             client = self._client(tmpdir)
@@ -74,6 +109,49 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(download.status_code, 200)
             self.assertEqual(download.headers["content-type"], "application/epub+zip")
             self.assertGreater(len(download.content), 100)
+
+    def test_job_rejects_parameter_out_of_range(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            payload = {
+                "api_key": "key",
+                "base_url": "https://api.example.com/v1",
+                "model": "model-a",
+                "temperature": "3",
+                "batch_size": "1",
+                "concurrency": "1",
+                "target_language": "Chinese",
+                "max_blocks": "0",
+            }
+            response = client.post(
+                "/api/jobs",
+                data=payload,
+                files={"file": ("sample.epub", _build_epub_bytes(), "application/epub+zip")},
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("temperature", response.json()["detail"])
+
+    def test_job_rejects_excessive_concurrency(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            response = client.post(
+                "/api/jobs",
+                data={
+                    "api_key": "key",
+                    "base_url": "https://api.example.com/v1",
+                    "model": "model-a",
+                    "temperature": "0.7",
+                    "batch_size": "1",
+                    "concurrency": "21",
+                    "target_language": "Chinese",
+                    "max_blocks": "0",
+                },
+                files={"file": ("sample.epub", _build_epub_bytes(), "application/epub+zip")},
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("concurrency", response.json()["detail"])
 
     def test_running_job_rejects_second_job(self):
         async def slow_translate(batch, *_args):

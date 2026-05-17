@@ -11,6 +11,17 @@ from provider_tools import fetch_models, health_check, normalize_base_url
 from providers import BUILTIN_PROVIDERS
 
 
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+MIN_TEMPERATURE = 0.0
+MAX_TEMPERATURE = 2.0
+MIN_BATCH_SIZE = 1
+MAX_BATCH_SIZE = 50
+MIN_CONCURRENCY = 1
+MAX_CONCURRENCY = 20
+MIN_MAX_BLOCKS = 0
+MAX_MAX_BLOCKS = 200_000
+
+
 class ModelsRequest(BaseModel):
     base_url: str
     api_key: str
@@ -21,6 +32,31 @@ class HealthRequest(BaseModel):
     api_key: str
     model: str
     target_language: str = config.DEFAULT_TARGET_LANGUAGE
+
+
+async def read_epub_upload(file: UploadFile) -> bytes:
+    filename = file.filename or ""
+    if not filename.lower().endswith(".epub"):
+        raise HTTPException(status_code=400, detail="Only .epub files are supported.")
+
+    epub_bytes = await file.read()
+    if not epub_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded EPUB is empty.")
+    if len(epub_bytes) > MAX_UPLOAD_BYTES:
+        limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"EPUB file is too large. Maximum size is {limit_mb}MB.")
+    return epub_bytes
+
+
+def validate_job_parameters(temperature: float, batch_size: int, concurrency: int, max_blocks: int) -> None:
+    if not MIN_TEMPERATURE <= temperature <= MAX_TEMPERATURE:
+        raise HTTPException(status_code=400, detail="temperature must be between 0 and 2.")
+    if not MIN_BATCH_SIZE <= batch_size <= MAX_BATCH_SIZE:
+        raise HTTPException(status_code=400, detail="batch_size must be between 1 and 50.")
+    if not MIN_CONCURRENCY <= concurrency <= MAX_CONCURRENCY:
+        raise HTTPException(status_code=400, detail="concurrency must be between 1 and 20.")
+    if not MIN_MAX_BLOCKS <= max_blocks <= MAX_MAX_BLOCKS:
+        raise HTTPException(status_code=400, detail="max_blocks must be between 0 and 200000.")
 
 
 def create_app(manager: SingleJobManager | None = None) -> FastAPI:
@@ -68,7 +104,7 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
 
     @app.post("/api/preview")
     async def preview(file: UploadFile = File(...)) -> dict:
-        epub_bytes = await file.read()
+        epub_bytes = await read_epub_upload(file)
         try:
             blocks = extract_blocks(epub_bytes)
         except Exception as exc:
@@ -93,7 +129,7 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
         model: str = Form(...),
         target_language: str = Form(config.DEFAULT_TARGET_LANGUAGE),
     ) -> dict:
-        epub_bytes = await file.read()
+        epub_bytes = await read_epub_upload(file)
         try:
             from translator import generate_glossary
             blocks = extract_blocks(epub_bytes)
@@ -125,7 +161,8 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
         target_language: str = Form(config.DEFAULT_TARGET_LANGUAGE),
         max_blocks: int = Form(0),
     ) -> dict:
-        epub_bytes = await file.read()
+        validate_job_parameters(temperature, batch_size, concurrency, max_blocks)
+        epub_bytes = await read_epub_upload(file)
         try:
             return await app.state.manager.create_job(
                 epub_bytes=epub_bytes,

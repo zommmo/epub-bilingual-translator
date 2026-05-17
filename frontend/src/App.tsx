@@ -117,6 +117,7 @@ const text = {
     providerName: "名称",
     providerNamePlaceholder: "例如：Local OpenAI",
     providerUrlPlaceholder: "https://example.com/v1",
+    customProviderWarning: "安全提醒：API Key 会发送到你填写的 Base URL。只添加可信的服务商或代理端点。",
     saveProvider: "保存 Provider",
     deleteProvider: "删除当前 Provider",
     selectedCustomProvider: "当前为自定义 Provider，只在本次页面会话中保留。",
@@ -209,6 +210,7 @@ const text = {
     providerName: "Name",
     providerNamePlaceholder: "Example: Local OpenAI",
     providerUrlPlaceholder: "https://example.com/v1",
+    customProviderWarning: "Security note: your API key will be sent to the Base URL you enter. Only add trusted providers or proxy endpoints.",
     saveProvider: "Save Provider",
     deleteProvider: "Delete Current Provider",
     selectedCustomProvider: "This custom Provider is kept only for the current page session.",
@@ -766,6 +768,7 @@ function App() {
           <details className="custom-provider">
             <summary>{copy.addProvider}</summary>
             <div className="provider-form">
+              <p className="provider-warning">{copy.customProviderWarning}</p>
               <label>{copy.providerName}
                 <input value={newProviderName} placeholder={copy.providerNamePlaceholder} onChange={(event) => setNewProviderName(event.target.value)} />
               </label>

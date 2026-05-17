@@ -21,6 +21,7 @@ The app runs on your own machine. EPUB files, API keys, and translation requests
 - Chinese and English UI switching, remembered in the browser.
 - Model list fetching and connection testing.
 - Translation cache clearing from the UI.
+- Automatic glossary extraction and glossary-guided translation.
 - Batch translation with concurrency control, pause, resume, stop, and failed-block retry.
 - SQLite translation cache to avoid repeated requests for identical text and settings.
 - Target language selection, including custom target language input.
@@ -67,6 +68,8 @@ make run
 6. Start translation and download the bilingual EPUB when the job is complete.
 7. Clear the translation cache from the debug section when you want to force fresh translations.
 
+Security note: a custom Provider Base URL receives the API key you enter. Only use trusted LLM providers or proxy endpoints you control.
+
 ## Output and Cache
 
 - Generated files are written to `output/` and are also available through the download button.
@@ -88,6 +91,15 @@ Build the frontend:
 cd frontend
 npm run build
 ```
+
+GitHub Actions runs backend tests and frontend builds on pushes and pull requests. CodeQL and Dependabot provide baseline security scanning and dependency update coverage.
+
+## Safety Limits
+
+- Uploaded files must be `.epub`, non-empty, and no larger than 100MB by default.
+- Translation parameters are validated on the backend: temperature `0-2`, batch size `1-50`, concurrency `1-20`, max blocks `0-200000`.
+- API keys are kept only in current page memory and are lost after refresh.
+- Custom providers are stored only in the current page session and disappear after refresh.
 
 ## Key Files
 

@@ -13,6 +13,33 @@ class TranslationError(Exception):
     """自定义异常用于触发重试"""
 
 
+THINKING_PROVIDER_HINTS = ("qwen", "dashscope", "aliyun", "aliyuncs", "tongyi")
+
+
+def should_send_thinking_control(base_url: str, model: str, thinking_enabled: bool) -> bool:
+    if thinking_enabled:
+        return True
+    haystack = f"{base_url} {model}".lower()
+    return any(hint in haystack for hint in THINKING_PROVIDER_HINTS)
+
+
+def build_chat_payload(
+    model: str,
+    temperature: float,
+    messages: list[dict],
+    base_url: str = "",
+    thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
+) -> dict:
+    payload = {
+        "model": model,
+        "temperature": float(temperature),
+        "messages": messages,
+    }
+    if should_send_thinking_control(base_url, model, thinking_enabled):
+        payload["enable_thinking"] = bool(thinking_enabled)
+    return payload
+
+
 async def _call_model(client: httpx.AsyncClient, payload: dict) -> str:
     # 结构化 JSON 响应能保证段落不乱序，可精确按 id 对齐
     async for attempt in AsyncRetrying(
@@ -206,6 +233,7 @@ async def translate_batches(
     target_language: str = config.DEFAULT_TARGET_LANGUAGE,
     glossary: str = "",
     context: list[dict] | None = None,
+    thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
 ) -> Tuple[Dict[str, str], List[dict]]:
     """
     批量翻译：返回成功映射与失败列表。
@@ -251,12 +279,13 @@ async def translate_batches(
                     ),
                 },
             ]
-            payload = {
-                "model": model,
-                "temperature": float(temperature),
-                "messages": messages,
-                # 结构化 JSON 约束：让模型逐条按 id 输出，防止自由回答导致段落乱序
-            }
+            payload = build_chat_payload(
+                model=model,
+                temperature=temperature,
+                messages=messages,
+                base_url=base_url,
+                thinking_enabled=thinking_enabled,
+            )
             try:
                 content = await _call_model(client, payload)
                 parsed = extract_json_array(content)
@@ -315,7 +344,8 @@ async def generate_glossary(
     api_key: str,
     base_url: str,
     model: str,
-    target_language: str
+    target_language: str,
+    thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
 ) -> str:
     text_samples = []
     char_count = 0
@@ -342,11 +372,13 @@ async def generate_glossary(
         {"role": "user", "content": f"Text:\n{sample_text}"}
     ]
     
-    payload = {
-        "model": model,
-        "temperature": 0.3,
-        "messages": messages,
-    }
+    payload = build_chat_payload(
+        model=model,
+        temperature=0.3,
+        messages=messages,
+        base_url=base_url,
+        thinking_enabled=thinking_enabled,
+    )
     
     headers = {
         "Authorization": f"Bearer {api_key}",

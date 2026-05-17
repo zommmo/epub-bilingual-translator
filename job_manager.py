@@ -14,7 +14,7 @@ from translator import translate_batches
 
 
 TranslateFunc = Callable[
-    [list[dict], str, str, str, float, int, int, str, str, str, list[dict]],
+    [list[dict], str, str, str, float, int, int, str, str, str, list[dict], bool],
     Awaitable[tuple[dict[str, str], list[dict]]],
 ]
 
@@ -78,6 +78,7 @@ class SingleJobManager:
         custom_prompt: str,
         glossary: str,
         target_language: str,
+        thinking_enabled: bool,
         max_blocks: int,
     ) -> dict:
         if self._is_active():
@@ -97,6 +98,7 @@ class SingleJobManager:
             max_blocks=max_blocks,
             db_path=self.db_path,
             target_language=target_language,
+            thinking_enabled=thinking_enabled,
         )
         self._start_worker()
         return self.snapshot()
@@ -161,4 +163,5 @@ class SingleJobManager:
             "output_name": self.job.get("output_name"),
             "can_download": self.job.get("status") == "done" and bool(self.job.get("epub_bytes")),
             "target_language": self.job.get("target_language") or config.DEFAULT_TARGET_LANGUAGE,
+            "thinking_enabled": bool(self.job.get("thinking_enabled", config.DEFAULT_THINKING_ENABLED)),
         }

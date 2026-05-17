@@ -30,8 +30,16 @@ class TranslationJobTests(unittest.TestCase):
         japanese = build_params_json(0.7, "Japanese")
 
         self.assertIn('"target_language":"Chinese"', chinese)
+        self.assertIn('"thinking_enabled":false', chinese)
         self.assertIn('"temperature":0.7', chinese)
         self.assertNotEqual(chinese, japanese)
+
+    def test_params_json_includes_thinking_mode(self):
+        disabled = build_params_json(0.7, "Chinese", False)
+        enabled = build_params_json(0.7, "Chinese", True)
+
+        self.assertIn('"thinking_enabled":true', enabled)
+        self.assertNotEqual(disabled, enabled)
 
     def test_params_json_accepts_custom_target_language(self):
         params = build_params_json(0.7, "Traditional Chinese")
@@ -123,6 +131,7 @@ class TranslationJobTests(unittest.TestCase):
                 target_language,
                 glossary,
                 context,
+                thinking_enabled,
             ):
                 self.assertEqual(api_key, "key")
                 self.assertEqual(base_url, "https://api.example.com/v1")
@@ -132,6 +141,7 @@ class TranslationJobTests(unittest.TestCase):
                 self.assertEqual(concurrency, 1)
                 self.assertEqual(prompt, "literal")
                 self.assertEqual(target_language, "Chinese")
+                self.assertFalse(thinking_enabled)
                 return {batch[0]["block_id"]: "你好"}, []
 
             asyncio.run(process_next_batch(job, "key", db_path, fake_translate))
@@ -142,6 +152,54 @@ class TranslationJobTests(unittest.TestCase):
             self.assertEqual(job["results_map"], {"chapter.xhtml::p::0": "你好"})
             self.assertEqual(job_counts(job)["placeholders"], 0)
             self.assertEqual(bulk_get(db_path, [cache_key]), {cache_key: "你好"})
+
+    def test_process_next_batch_uses_batch_size_times_concurrency_window(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "translations.sqlite3")
+            init_db(db_path)
+            blocks = [
+                _block(f"chapter.xhtml::p::{index}", f"Hello {index}", f"hash-{index}")
+                for index in range(6)
+            ]
+            job = create_job_from_blocks(
+                blocks,
+                b"epub",
+                "book.epub",
+                "model-a",
+                0.7,
+                2,
+                3,
+                "https://api.example.com/v1",
+                "",
+                "",
+                db_path,
+                now=10,
+            )
+
+            async def fake_translate(
+                batch,
+                api_key,
+                base_url,
+                model,
+                temperature,
+                batch_size,
+                concurrency,
+                prompt,
+                target_language,
+                glossary,
+                context,
+                thinking_enabled,
+            ):
+                self.assertEqual(batch_size, 2)
+                self.assertEqual(concurrency, 3)
+                self.assertEqual(len(batch), 6)
+                return {block["block_id"]: f"译文：{block['text']}" for block in batch}, []
+
+            asyncio.run(process_next_batch(job, "key", db_path, fake_translate))
+
+            self.assertEqual(job["status"], "done")
+            self.assertEqual(job["processed_blocks"], 6)
+            self.assertEqual(job["pending_blocks"], [])
 
     def test_failed_batch_can_be_requeued_for_retry(self):
         with tempfile.TemporaryDirectory() as tmpdir:

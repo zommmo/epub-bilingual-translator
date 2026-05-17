@@ -5,6 +5,7 @@ TEMPERATURE = 0.7
 BATCH_SIZE = 4
 CONCURRENCY = 4
 DEFAULT_TARGET_LANGUAGE = "Chinese"
+DEFAULT_THINKING_ENABLED = False
 TARGET_LANGUAGES = ["Chinese", "English", "Japanese", "Korean", "French", "German", "Spanish"]
 MAX_BLOCK_TOKENS = 900
 

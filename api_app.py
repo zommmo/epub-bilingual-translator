@@ -83,6 +83,7 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
                 "concurrency": config.CONCURRENCY,
                 "max_blocks": 0,
                 "target_language": config.DEFAULT_TARGET_LANGUAGE,
+                "thinking_enabled": config.DEFAULT_THINKING_ENABLED,
             },
         }
 
@@ -128,6 +129,7 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
         base_url: str = Form(...),
         model: str = Form(...),
         target_language: str = Form(config.DEFAULT_TARGET_LANGUAGE),
+        thinking_enabled: bool = Form(config.DEFAULT_THINKING_ENABLED),
     ) -> dict:
         epub_bytes = await read_epub_upload(file)
         try:
@@ -141,7 +143,8 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
                 api_key=api_key,
                 base_url=normalize_base_url(base_url),
                 model=model,
-                target_language=target_language
+                target_language=target_language,
+                thinking_enabled=thinking_enabled,
             )
             return {"glossary": glossary_text}
         except Exception as exc:
@@ -159,6 +162,7 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
         custom_prompt: str = Form(""),
         glossary: str = Form(""),
         target_language: str = Form(config.DEFAULT_TARGET_LANGUAGE),
+        thinking_enabled: bool = Form(config.DEFAULT_THINKING_ENABLED),
         max_blocks: int = Form(0),
     ) -> dict:
         validate_job_parameters(temperature, batch_size, concurrency, max_blocks)
@@ -176,6 +180,7 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
                 custom_prompt=custom_prompt,
                 glossary=glossary,
                 target_language=target_language,
+                thinking_enabled=thinking_enabled,
                 max_blocks=max_blocks,
             )
         except JobConflictError as exc:

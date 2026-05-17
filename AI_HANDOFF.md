@@ -29,6 +29,7 @@ Paperford is a local FastAPI + React app for translating EPUB books into bilingu
 
 - API keys are accepted from the browser and kept in process memory only for the current job.
 - Custom Provider Base URLs are user controlled; the API key is sent to that endpoint for model fetching, health checks, glossary extraction, and translation.
+- Thinking mode is off by default. When enabled, translation and glossary requests include an OpenAI-compatible `enable_thinking` flag for providers/models that support it; the setting is included in the cache key.
 - Translation cache is SQLite in `translations.sqlite3`.
 - Generated EPUB files are written to `output/`.
 

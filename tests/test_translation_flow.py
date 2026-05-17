@@ -49,6 +49,7 @@ class TranslationFlowTests(unittest.TestCase):
                 target_language,
                 glossary,
                 context,
+                thinking_enabled,
             ):
                 self.assertEqual(api_key, "key")
                 self.assertEqual(base_url, "https://api.example.com/v1")
@@ -58,6 +59,7 @@ class TranslationFlowTests(unittest.TestCase):
                 self.assertEqual(concurrency, 1)
                 self.assertEqual(prompt, "literal")
                 self.assertEqual(target_language, "Chinese")
+                self.assertFalse(thinking_enabled)
                 return {
                     block["block_id"]: f"译文：{block['text']}"
                     for block in batch

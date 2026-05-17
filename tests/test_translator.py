@@ -4,7 +4,7 @@ import unittest
 
 import config
 import translator
-from translator import TranslationError, extract_json_array, split_text_for_translation
+from translator import TranslationError, build_chat_payload, extract_json_array, split_text_for_translation
 
 
 class TranslatorTests(unittest.TestCase):
@@ -34,6 +34,39 @@ class TranslatorTests(unittest.TestCase):
     def test_extract_json_array_rejects_non_array(self):
         with self.assertRaises(TranslationError):
             extract_json_array('{"id":"a","translation":"你好"}')
+
+    def test_chat_payload_omits_thinking_for_standard_provider_when_disabled(self):
+        payload = build_chat_payload(
+            model="gpt-4o-mini",
+            temperature=0.7,
+            messages=[],
+            base_url="https://api.openai.com/v1",
+            thinking_enabled=False,
+        )
+
+        self.assertNotIn("enable_thinking", payload)
+
+    def test_chat_payload_disables_thinking_for_qwen_by_default(self):
+        payload = build_chat_payload(
+            model="qwen-plus",
+            temperature=0.7,
+            messages=[],
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            thinking_enabled=False,
+        )
+
+        self.assertIs(payload["enable_thinking"], False)
+
+    def test_chat_payload_enables_thinking_when_requested(self):
+        payload = build_chat_payload(
+            model="thinking-model",
+            temperature=0.7,
+            messages=[],
+            base_url="https://api.example.com/v1",
+            thinking_enabled=True,
+        )
+
+        self.assertIs(payload["enable_thinking"], True)
 
     def test_split_text_for_translation_splits_long_text(self):
         text = "First sentence. Second sentence. Third sentence."

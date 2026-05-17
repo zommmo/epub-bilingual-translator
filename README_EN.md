@@ -25,6 +25,7 @@ The app runs on your own machine. EPUB files, API keys, and translation requests
 - Batch translation with concurrency control, pause, resume, stop, and failed-block retry.
 - SQLite translation cache to avoid repeated requests for identical text and settings.
 - Target language selection, including custom target language input.
+- Thinking mode toggle, off by default and manually enabled per model capability.
 - Optional custom style prompt.
 - Long-block token estimation and splitting before model requests, with merged translations in the final EPUB.
 
@@ -65,7 +66,7 @@ make run
 3. Enter a model name or fetch the available model list.
 4. Upload an EPUB and optionally parse a preview first.
 5. Optionally click auto-extract terms to ask the model for suggested names of characters, locations, factions, and proper nouns.
-6. Adjust target language, temperature, batch size, concurrency, max block count, style prompt, and glossary.
+6. Adjust target language, temperature, batch size, concurrency, max block count, Thinking mode, style prompt, and glossary.
 7. Start translation and download the bilingual EPUB when the job is complete.
 8. Clear the translation cache from the debug section when you want to force fresh translations.
 
@@ -95,7 +96,7 @@ During translation, Paperford sends the global glossary with each text batch and
 - Generated files are written to `output/` and are also available through the download button.
 - The translation cache is stored in `translations.sqlite3`.
 - Cache keys include text hash, model, prompt version, target language, parameters, custom style prompt hash, and glossary hash.
-- Changing the model, target language, temperature, style prompt, or glossary creates separate cache entries.
+- Changing the model, target language, temperature, Thinking mode, style prompt, or glossary creates separate cache entries.
 
 ## Development
 
@@ -120,6 +121,7 @@ GitHub Actions runs backend tests and frontend builds on pushes and pull request
 - Translation parameters are validated on the backend: temperature `0-2`, batch size `1-50`, concurrency `1-20`, max blocks `0-200000`.
 - API keys are kept only in current page memory and are lost after refresh.
 - Custom providers are stored only in the current page session and disappear after refresh.
+- Thinking mode is off by default. Not every model supports this parameter, so enable it only when the selected model/provider supports it.
 
 ## Key Files
 

@@ -30,8 +30,16 @@ class TranslationJobTests(unittest.TestCase):
         japanese = build_params_json(0.7, "Japanese")
 
         self.assertIn('"target_language":"Chinese"', chinese)
+        self.assertIn('"thinking_enabled":false', chinese)
         self.assertIn('"temperature":0.7', chinese)
         self.assertNotEqual(chinese, japanese)
+
+    def test_params_json_includes_thinking_mode(self):
+        disabled = build_params_json(0.7, "Chinese", False)
+        enabled = build_params_json(0.7, "Chinese", True)
+
+        self.assertIn('"thinking_enabled":true', enabled)
+        self.assertNotEqual(disabled, enabled)
 
     def test_params_json_accepts_custom_target_language(self):
         params = build_params_json(0.7, "Traditional Chinese")
@@ -123,6 +131,7 @@ class TranslationJobTests(unittest.TestCase):
                 target_language,
                 glossary,
                 context,
+                thinking_enabled,
             ):
                 self.assertEqual(api_key, "key")
                 self.assertEqual(base_url, "https://api.example.com/v1")
@@ -132,6 +141,7 @@ class TranslationJobTests(unittest.TestCase):
                 self.assertEqual(concurrency, 1)
                 self.assertEqual(prompt, "literal")
                 self.assertEqual(target_language, "Chinese")
+                self.assertFalse(thinking_enabled)
                 return {batch[0]["block_id"]: "你好"}, []
 
             asyncio.run(process_next_batch(job, "key", db_path, fake_translate))

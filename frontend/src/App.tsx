@@ -32,6 +32,7 @@ type AppConfig = {
     concurrency: number;
     max_blocks: number;
     target_language: string;
+    thinking_enabled: boolean;
   };
 };
 
@@ -101,6 +102,8 @@ const text = {
     batchSize: "批大小",
     concurrency: "并发",
     maxBlocks: "最大块",
+    thinkingMode: "Thinking 模式",
+    thinkingModeHint: "默认关闭。仅部分模型支持；开启后会请求模型使用推理/思考能力。",
     stylePrompt: "风格提示",
     promptPlaceholder: "例如：译文温柔、克制，保留文学节奏。",
     glossary: "全局术语表",
@@ -194,6 +197,8 @@ const text = {
     batchSize: "Batch Size",
     concurrency: "Concurrency",
     maxBlocks: "Max Blocks",
+    thinkingMode: "Thinking Mode",
+    thinkingModeHint: "Off by default. Only some models support this; turn it on to request reasoning/thinking behavior.",
     stylePrompt: "Style Prompt",
     promptPlaceholder: "Example: warm, restrained prose with literary cadence.",
     glossary: "Glossary",
@@ -310,6 +315,7 @@ function App() {
   const [batchSize, setBatchSize] = useState("4");
   const [concurrency, setConcurrency] = useState("4");
   const [maxBlocks, setMaxBlocks] = useState("0");
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [glossary, setGlossary] = useState("");
   const [extractingGlossary, setExtractingGlossary] = useState(false);
@@ -345,6 +351,7 @@ function App() {
       setBatchSize(String(data.defaults.batch_size));
       setConcurrency(String(data.defaults.concurrency));
       setMaxBlocks(String(data.defaults.max_blocks));
+      setThinkingEnabled(Boolean(data.defaults.thinking_enabled));
     }).catch((error) => setMessage(error.message));
   }, []);
 
@@ -512,6 +519,7 @@ function App() {
     formData.append("custom_prompt", customPrompt);
     formData.append("glossary", glossary);
     formData.append("target_language", finalTargetLanguage);
+    formData.append("thinking_enabled", String(thinkingEnabled));
     formData.append("max_blocks", String(parsedMaxBlocks));
     try {
       if (job.status === "paused") {
@@ -545,6 +553,7 @@ function App() {
     formData.append("base_url", baseUrl);
     formData.append("model", model);
     formData.append("target_language", finalTargetLanguage);
+    formData.append("thinking_enabled", String(thinkingEnabled));
     try {
       const response = await fetch("/api/extract-glossary", { method: "POST", body: formData });
       const data = await response.json();
@@ -753,6 +762,13 @@ function App() {
             <label>{copy.concurrency}<input type="number" min="1" value={concurrency} onChange={(event) => setConcurrency(event.target.value)} /></label>
             <label>{copy.maxBlocks}<input type="number" min="0" value={maxBlocks} onChange={(event) => setMaxBlocks(event.target.value)} /></label>
           </div>
+          <label className="toggle-line">
+            <input type="checkbox" checked={thinkingEnabled} onChange={(event) => setThinkingEnabled(event.target.checked)} />
+            <span>
+              <strong>{copy.thinkingMode}</strong>
+              <small>{copy.thinkingModeHint}</small>
+            </span>
+          </label>
           <label>{copy.stylePrompt}
             <textarea rows={3} value={customPrompt} onChange={(event) => setCustomPrompt(event.target.value)} placeholder={copy.promptPlaceholder} />
           </label>

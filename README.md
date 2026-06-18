@@ -1,34 +1,43 @@
-# Paperford - 本地 EPUB 双语翻译器
+# Paperford
 
-[English README](README_EN.md)
+**Local EPUB bilingual translator for cleaner long-form reading copies.**
 
-Paperford 是一个本地运行的 EPUB 双语翻译工作台。它把长篇 EPUB 解析成可控的文本块，通过 OpenAI 兼容接口批量翻译，再生成原文与译文交错排版的双语 EPUB。
+[中文说明](README_ZH.md)
 
-它的目标不是做“能用就行”的机器直译，而是提供更接近编辑工作流的控制：术语表、翻译档位、风格预设、上下文延续、缓存、失败重试和本地隐私边界。
+![Python](https://img.shields.io/badge/Python-3.10--3.13-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-local%20backend-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React%20%2B%20Vite-web%20UI-61DAFB?logo=react&logoColor=111)
+![License](https://img.shields.io/badge/License-MIT-111111)
+
+Paperford is a local EPUB translation workbench. It parses long books into controlled text blocks, translates them through an OpenAI-compatible API, and creates bilingual EPUB files with the source text and translation interleaved.
+
+It is built for people who want more control than a raw machine-translation pass: glossary terms, translation profiles, style presets, continuity context, cache reuse, failed-block retry, and a clear local privacy boundary.
 
 ![Paperford home screen](docs/assets/paperford-home.png)
 
-## 为什么叫 Paperford
+## What It Does
 
-Paperford 可以理解为 “paper + ford”：把一本书从原文渡到另一种语言的本地工具。为了让 GitHub 访客一眼看懂用途，本项目现在统一使用更明确的展示名：
+| Area | What you get |
+| --- | --- |
+| EPUB workflow | Upload an EPUB, preview extracted text, translate, and download a bilingual EPUB. |
+| Translation control | Choose Fast Draft, Balanced, or Refine profiles plus literary, faithful, web-novel, and nonfiction styles. |
+| Terminology | Auto-extract names and proper nouns from front/middle/back samples, then keep glossary terms consistent. |
+| Reliability | Split long blocks before translation, validate JSON output, retry failed blocks, and cache repeated work in SQLite. |
+| Privacy | Files stay on your machine. API keys live only in current page memory and are sent only to your configured provider. |
 
-**Paperford - Local EPUB Bilingual Translator**
+## Highlights
 
-## 核心亮点
-
-- 本地 Web 应用：FastAPI 后端 + React/Vite 前端，一条命令启动。
-- EPUB 双语输出：保留原文结构，把译文插入到对应文本块后方。
-- OpenAI 兼容接口：支持 OpenAI、DeepSeek、xAI、Gemini 兼容端点和自定义 Base URL。
-- 更自然的翻译控制：快速初译、均衡、精修三个档位，内置文学、忠实、网文、非虚构风格。
-- 自动术语表：从书稿前段、中段、后段抽样提取人物、地名、组织和专有名词。
-- 长段落处理：按 token 估算自动拆分长文本，翻译后合并回原段落。
-- 本地缓存：SQLite 缓存相同文本和相同配置，减少重复请求和成本。
-- 进度面板：显示速度、预计剩余时间、批次耗时、缓存命中和失败数。
-- 隐私边界清晰：EPUB 文件留在本机；API Key 只保存在当前页面内存中。
+- One-command local web app: FastAPI backend, React/Vite frontend, served at `http://127.0.0.1:8000`.
+- OpenAI-compatible providers: OpenAI, DeepSeek, xAI, Gemini-compatible endpoints, and custom Base URLs.
+- Bilingual EPUB output that keeps the original book structure and inserts translations after matching text blocks.
+- Translation profiles for speed/quality tradeoffs: Fast Draft, Balanced, and Refine.
+- Built-in style presets for literary prose, faithful translation, web novels, and nonfiction.
+- SQLite translation cache keyed by text, model, language, prompt version, profile, style, and glossary.
+- Progress dashboard with speed, ETA, cache hits, failed blocks, and average batch time.
 
 ![Paperford progress and settings](docs/assets/paperford-progress-settings.png)
 
-## 快速开始
+## Quick Start
 
 ```bash
 git clone https://github.com/zommmo/paperford.git
@@ -36,15 +45,15 @@ cd paperford
 ./run_web.sh
 ```
 
-启动后打开：
+Then open:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-`run_web.sh` 会自动准备 Python 虚拟环境、安装依赖、用 Vite 构建前端，并启动本地 FastAPI 服务。macOS 上如果安装了 Homebrew `node@22`，脚本会优先使用它。
+`run_web.sh` prepares the Python virtual environment, installs dependencies, builds the frontend with Vite, and starts the local FastAPI server. On macOS, if Homebrew `node@22` is available, the script prefers it.
 
-## 手动安装
+## Manual Setup
 
 ```bash
 python3 -m venv .venv
@@ -57,63 +66,63 @@ cd ..
 .venv/bin/python -m uvicorn api_app:app --host 127.0.0.1 --port 8000
 ```
 
-## 使用流程
+## Workflow
 
-1. 在右侧设置区填写 API Key。
-2. 选择 Provider，或添加只在当前页面会话中保存的自定义 Provider。
-3. 填写模型名称，或点击“获取模型”。
-4. 上传 EPUB，可先点击“解析预览”确认抽取结果。
-5. 选择翻译档位、风格预设、目标语言、温度、批大小、并发数和最大文本块数。
-6. 可选：点击“自动提取术语”，或手动维护全局术语表。
-7. 点击“开始翻译”，完成后下载双语 EPUB。
-8. 如需强制重新翻译，可在调试区清除翻译缓存。
+1. Enter your API key in the settings panel.
+2. Choose a provider, or add a session-only custom provider.
+3. Enter a model name, or click Fetch Models.
+4. Upload an EPUB and optionally parse a preview first.
+5. Choose the translation profile, style preset, target language, temperature, batch size, concurrency, and max block count.
+6. Optionally auto-extract terms, or maintain the global glossary manually.
+7. Start translation and download the bilingual EPUB when complete.
+8. Clear the translation cache from the debug section when you want fresh translations.
 
-## 翻译质量控制
+## Translation Controls
 
-Paperford 会把用户风格要求、术语表、上下文片段和输出 JSON 约束分层组织，避免自定义 prompt 破坏结构化输出。
+Paperford separates style instructions, glossary terms, continuity context, and strict JSON output constraints so custom prompts do not break structured model output.
 
-三个翻译档位的定位：
+Translation profiles:
 
-- **快速初译**：更大的处理窗口，更少上下文，适合快速扫书或低成本初稿。
-- **均衡**：默认模式，兼顾上下文、速度和译文自然度。
-- **精修**：更小窗口并增加润色步骤，适合对文风要求更高的长篇阅读副本。
+- **Fast Draft**: larger processing windows and less context for quick, lower-cost drafts.
+- **Balanced**: the default profile, balancing context, speed, and natural prose.
+- **Refine**: smaller windows plus an extra polish pass for reading copies where style matters more.
 
-内置风格预设：
+Style presets:
 
-- **文学自然**：保留叙事声音、节奏、意象和对话自然度。
-- **忠实克制**：尽量贴近原文信息顺序和细节，不主动扩写。
-- **轻小说 / 网文**：更直接、顺畅、节奏感更强。
-- **非虚构**：强调术语准确、逻辑清晰和低修辞负担。
+- **Literary Natural**: preserve voice, rhythm, imagery, and dialogue flow.
+- **Faithful**: stay close to source meaning, sequence, and detail without embellishment.
+- **Web Novel**: direct, readable, energetic genre-fiction prose.
+- **Nonfiction**: precise terminology, clear logic, and low-ornament prose.
 
-## 自动术语表
+## Automatic Glossary
 
-自动提取术语不会把整本书发给模型，而是从前段、中段和后段抽样约 `18000` 个字符，请模型提取主要人物、地点、阵营、组织和专有名词。
+Auto-extract terms does not send the entire book to the model. It samples roughly `18000` characters across the front, middle, and back of the source text, then asks the model to identify main characters, locations, factions, organizations, and proper nouns.
 
-术语表格式：
+Glossary format:
 
 ```text
-Alice=爱丽丝
-King's Landing=君临城
-Silver City=银城
+Alice=Alice
+King's Landing=King's Landing
+Silver City=Silver City
 ```
 
-术语表会参与缓存 key。修改术语后，Paperford 会生成新的缓存记录，避免复用旧译文。
+Glossary content is included in the cache key. Changing glossary terms creates separate cache entries instead of reusing older translations.
 
-## 输出和缓存
+## Output and Cache
 
-- 生成的 EPUB 写入 `output/`，也可在页面里直接下载。
-- 翻译缓存默认保存在 `translations.sqlite3`。
-- 缓存 key 包含文本 hash、模型、prompt 版本、目标语言、温度、Thinking 模式、翻译档位、风格预设、自定义风格和术语表 hash。
+- Generated EPUB files are written to `output/` and are also available through the download button.
+- The translation cache is stored in `translations.sqlite3`.
+- Cache keys include text hash, model, prompt version, target language, temperature, Thinking mode, translation profile, style preset, custom style prompt hash, and glossary hash.
 
-## 安全说明
+## Safety Notes
 
-- 上传文件必须是 `.epub`，不能为空，默认最大 100MB。
-- 后端限制翻译参数范围：温度 `0-2`，批大小 `1-50`，并发 `1-20`，最大文本块 `0-200000`。
-- API Key 只保存在当前页面内存中，刷新页面即丢失。
-- 自定义 Provider 的 Base URL 会收到你输入的 API Key，只应填写可信服务商或你自己控制的代理端点。
-- Thinking 模式默认关闭；只有确认模型支持时才建议开启。
+- Uploaded files must be `.epub`, non-empty, and no larger than 100MB by default.
+- Translation parameters are validated on the backend: temperature `0-2`, batch size `1-50`, concurrency `1-20`, max blocks `0-200000`.
+- API keys are kept only in current page memory and are lost after refresh.
+- A custom Provider Base URL receives the API key you enter. Only use trusted LLM providers or proxy endpoints you control.
+- Thinking mode is off by default. Enable it only when the selected model/provider supports it.
 
-## 开发验证
+## Development Checks
 
 ```bash
 .venv/bin/python -W error::ResourceWarning -m unittest discover -s tests
@@ -121,14 +130,14 @@ cd frontend && npm run build
 cd frontend && npm audit --audit-level=moderate
 ```
 
-GitHub Actions 会在 push 和 pull request 时运行后端测试与前端构建；CodeQL 和 Dependabot 用于基础安全扫描和依赖更新提醒。
+GitHub Actions runs backend tests and frontend builds on pushes and pull requests. CodeQL and Dependabot provide baseline security scanning and dependency update coverage.
 
-## 当前限制
+## Current Limitations
 
-- 同一时间只能处理一本 EPUB。
-- 自定义 Provider 只保存在当前页面会话中，刷新后会消失。
-- 文本抽取目前覆盖 `h1-h6`、`p`、`li` 标签。
-- 失败段落可重试；重试前下载的 EPUB 会对失败段落使用 `[未翻译]` 占位。
+- Only one EPUB can be processed at a time.
+- Custom providers are stored only in the current page session and disappear after refresh.
+- Text extraction currently covers `h1-h6`, `p`, and `li` tags.
+- Failed blocks can be retried; downloaded EPUBs created before retry still use `[untranslated]` placeholders.
 
 ## License
 

@@ -4,6 +4,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
+import re
 
 import config
 from database import clear_cache, init_db
@@ -68,6 +69,26 @@ def validate_job_parameters(temperature: float, batch_size: int, concurrency: in
         raise HTTPException(status_code=400, detail="max_blocks must be between 0 and 200000.")
 
 
+def public_provider_error(error: str | None) -> str:
+    if not error:
+        return "Provider request failed."
+
+    normalized = error.lower()
+    if "base_url" in normalized:
+        return "Provider Base URL is missing or invalid."
+    if "model" in normalized:
+        return "Provider model is missing or invalid."
+
+    status_match = re.search(r"status_code=(\d+)", error)
+    if status_match:
+        status_code = int(status_match.group(1))
+        if status_code == 0:
+            return "Provider request failed before receiving a response."
+        return f"Provider request failed with status code {status_code}."
+
+    return "Provider request failed."
+
+
 def create_app(manager: SingleJobManager | None = None) -> FastAPI:
     init_db(config.DB_PATH)
     app = FastAPI(title="Paperford API")
@@ -107,17 +128,20 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
     def get_models(request: ModelsRequest) -> dict:
         models, error = fetch_models(request.base_url, request.api_key)
         if models is None:
-            return {"ok": False, "models": [], "error": error}
+            return {"ok": False, "models": [], "error": public_provider_error(error)}
         return {"ok": True, "models": models, "error": None}
 
     @app.post("/api/health")
     def post_health(request: HealthRequest) -> dict:
-        return health_check(
+        result = health_check(
             request.base_url,
             request.api_key,
             request.model,
             request.target_language,
         )
+        if result.get("error"):
+            result["error"] = public_provider_error(str(result["error"]))
+        return result
 
     @app.post("/api/preview")
     async def preview(file: UploadFile = File(...)) -> dict:

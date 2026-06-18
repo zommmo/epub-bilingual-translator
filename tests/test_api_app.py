@@ -78,6 +78,55 @@ class ApiAppTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertIn("too large", response.json()["detail"])
 
+    def test_models_endpoint_hides_provider_error_details(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            with patch(
+                "api_app.fetch_models",
+                return_value=(None, "status_code=503; body_snippet=Traceback private-token"),
+            ):
+                response = client.post(
+                    "/api/models",
+                    json={"base_url": "https://api.example.com/v1", "api_key": "key"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["error"], "Provider request failed with status code 503.")
+            self.assertNotIn("Traceback", data["error"])
+            self.assertNotIn("private-token", data["error"])
+
+    def test_health_endpoint_hides_provider_error_details(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            with patch(
+                "api_app.health_check",
+                return_value={
+                    "ok": False,
+                    "models_ok": False,
+                    "infer_ok": False,
+                    "elapsed": 0.1,
+                    "error": "infer: status_code=0; body_snippet=Traceback private-token",
+                },
+            ):
+                response = client.post(
+                    "/api/health",
+                    json={
+                        "base_url": "https://api.example.com/v1",
+                        "api_key": "key",
+                        "model": "model-a",
+                        "target_language": "Chinese",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["error"], "Provider request failed before receiving a response.")
+            self.assertNotIn("Traceback", data["error"])
+            self.assertNotIn("private-token", data["error"])
+
     def test_job_lifecycle_and_download(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             client = self._client(tmpdir)

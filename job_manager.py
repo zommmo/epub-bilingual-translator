@@ -1,5 +1,4 @@
 import asyncio
-from typing import Awaitable, Callable
 
 import config
 from translation_job import (
@@ -11,12 +10,7 @@ from translation_job import (
     process_next_batch,
 )
 from translator import translate_batches
-
-
-TranslateFunc = Callable[
-    [list[dict], str, str, str, float, int, int, str, str, str, list[dict], bool],
-    Awaitable[tuple[dict[str, str], list[dict]]],
-]
+from translation_types import TranslateFunc
 
 
 class JobConflictError(Exception):
@@ -79,6 +73,8 @@ class SingleJobManager:
         glossary: str,
         target_language: str,
         thinking_enabled: bool,
+        translation_profile: str,
+        style_preset: str,
         max_blocks: int,
     ) -> dict:
         if self._is_active():
@@ -99,6 +95,8 @@ class SingleJobManager:
             db_path=self.db_path,
             target_language=target_language,
             thinking_enabled=thinking_enabled,
+            translation_profile=translation_profile,
+            style_preset=style_preset,
         )
         self._start_worker()
         return self.snapshot()
@@ -164,4 +162,9 @@ class SingleJobManager:
             "can_download": self.job.get("status") == "done" and bool(self.job.get("epub_bytes")),
             "target_language": self.job.get("target_language") or config.DEFAULT_TARGET_LANGUAGE,
             "thinking_enabled": bool(self.job.get("thinking_enabled", config.DEFAULT_THINKING_ENABLED)),
+            "translation_profile": self.job.get("translation_profile") or config.DEFAULT_TRANSLATION_PROFILE,
+            "style_preset": self.job.get("style_preset") or config.DEFAULT_STYLE_PRESET,
+            "last_window_size": int(self.job.get("last_window_size") or 0),
+            "last_batch_seconds": round(float(self.job.get("last_batch_seconds") or 0.0), 2),
+            "avg_batch_seconds": round(float(self.job.get("avg_batch_seconds") or 0.0), 2),
         }

@@ -7,6 +7,7 @@ import httpx
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 import config
+from translation_types import TranslationOptions
 
 
 class TranslationError(Exception):
@@ -116,6 +117,128 @@ def _chunk_list(items: List[dict], size: int) -> List[List[dict]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+def _resolve_style_prompt(style_preset: str, custom_prompt: str) -> str:
+    preset = config.STYLE_PRESETS.get((style_preset or "").strip(), "")
+    custom = (custom_prompt or "").strip()
+    if preset and custom:
+        return f"{preset}\nAdditional instruction: {custom}"
+    return preset or custom
+
+
+def _build_context_excerpt(context: list[dict] | None, profile: str) -> str:
+    if not context:
+        return ""
+    limit = 2 if profile == "fast" else 5
+    excerpt_lines = ["<context>", "Use this previous context only for continuity, pronoun resolution, tone, and terminology. Do not translate this section."]
+    for ctx in context[-limit:]:
+        excerpt_lines.append(f"Source: {ctx['original']}")
+        excerpt_lines.append(f"Target: {ctx['translation']}")
+    excerpt_lines.append("</context>")
+    return "\n".join(excerpt_lines)
+
+
+def _validate_translation_items(parsed: list, batch: List[dict]) -> Dict[str, str]:
+    translations: Dict[str, str] = {}
+    for item in parsed:
+        if not isinstance(item, dict) or "id" not in item or "translation" not in item:
+            raise TranslationError("response item missing fields")
+        translations[str(item["id"])] = str(item["translation"])
+
+    input_ids = {b["block_id"] for b in batch}
+    received_ids = set(translations)
+    if received_ids != input_ids:
+        missing = sorted(input_ids - received_ids)
+        extra = sorted(received_ids - input_ids)
+        details = []
+        if missing:
+            details.append(f"missing ids: {len(missing)}")
+        if extra:
+            details.append(f"extra ids: {len(extra)}")
+        raise TranslationError("response ids mismatch input" + (f" ({', '.join(details)})" if details else ""))
+    return translations
+
+
+def sample_blocks_for_glossary(blocks: List[dict], max_chars: int = 18000) -> List[str]:
+    if not blocks or max_chars <= 0:
+        return []
+
+    total_chars = sum(len(block.get("text", "")) for block in blocks)
+    if total_chars <= max_chars:
+        return [block["text"] for block in blocks if block.get("text")]
+
+    sample_points = [0, len(blocks) // 3, (len(blocks) * 2) // 3]
+    per_section = max(1, max_chars // len(sample_points))
+    seen_ids = set()
+    samples: List[str] = []
+    remaining_budget = max_chars
+
+    for start_index in sample_points:
+        section_chars = 0
+        for block in blocks[start_index:]:
+            if remaining_budget <= 0 or section_chars >= per_section:
+                break
+            block_id = block.get("block_id")
+            if block_id in seen_ids:
+                continue
+            text = (block.get("text") or "").strip()
+            if not text:
+                continue
+            samples.append(text)
+            seen_ids.add(block_id)
+            section_chars += len(text)
+            remaining_budget -= len(text)
+
+    return samples
+
+
+async def _run_refinement_pass(
+    client: httpx.AsyncClient,
+    parsed: list[dict],
+    source_text_by_id: dict[str, str],
+    target_language: str,
+    glossary: str,
+    style_instruction: str,
+    model: str,
+    temperature: float,
+    base_url: str,
+    thinking_enabled: bool,
+) -> list[dict]:
+    payload_items = []
+    for item in parsed:
+        item_id = item["id"]
+        payload_items.append(
+            {
+                "id": item_id,
+                "source": source_text_by_id.get(item_id, ""),
+                "draft": item["translation"],
+            }
+        )
+    user_lines = [
+        "Polish the draft translations for natural target-language prose.",
+        "Keep source meaning, names, facts, paragraph boundaries, and ids unchanged.",
+        "Improve rhythm, word choice, dialogue flow, and idiomatic phrasing.",
+        "Return the same JSON array schema with id and translation only.",
+    ]
+    if glossary.strip():
+        user_lines.extend(["<glossary>", glossary.strip(), "</glossary>"])
+    if style_instruction.strip():
+        user_lines.extend(["<style>", style_instruction.strip(), "</style>"])
+    user_lines.append(f"<drafts_json>{json.dumps(payload_items, ensure_ascii=False)}</drafts_json>")
+    messages = [
+        {"role": "system", "content": config.build_system_prompt(target_language, "refine")},
+        {"role": "user", "content": "\n".join(user_lines)},
+    ]
+    payload = build_chat_payload(
+        model=model,
+        temperature=min(max(float(temperature), 0.2), 1.0),
+        messages=messages,
+        base_url=base_url,
+        thinking_enabled=thinking_enabled,
+    )
+    refined_content = await _call_model(client, payload)
+    return extract_json_array(refined_content)
+
+
 def estimate_token_count(text: str, model: str = "") -> int:
     try:
         import tiktoken
@@ -223,17 +346,7 @@ def _build_translation_units(blocks: List[dict], model: str) -> tuple[List[dict]
 
 async def translate_batches(
     blocks: List[dict],
-    api_key: str,
-    base_url: str,
-    model: str,
-    temperature: float,
-    batch_size: int,
-    concurrency: int,
-    custom_prompt: str = "",
-    target_language: str = config.DEFAULT_TARGET_LANGUAGE,
-    glossary: str = "",
-    context: list[dict] | None = None,
-    thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
+    options: TranslationOptions,
 ) -> Tuple[Dict[str, str], List[dict]]:
     """
     批量翻译：返回成功映射与失败列表。
@@ -246,6 +359,20 @@ async def translate_batches(
     if not blocks:
         return {}, []
 
+    api_key = options.api_key
+    base_url = options.base_url
+    model = options.model
+    temperature = options.temperature
+    batch_size = options.batch_size
+    concurrency = options.concurrency
+    custom_prompt = options.custom_prompt
+    target_language = options.target_language
+    glossary = options.glossary
+    context = options.context
+    thinking_enabled = options.thinking_enabled
+    translation_profile = options.translation_profile
+    style_preset = options.style_preset
+
     headers = {"Authorization": f"Bearer {api_key}"}
     # 使用 semaphore 控制并发，避免过高并发触发限流
     semaphore = asyncio.Semaphore(concurrency)
@@ -253,53 +380,74 @@ async def translate_batches(
     unit_results: Dict[str, str] = {}
     unit_failures: List[dict] = []
 
-    async def handle_batch(batch: List[dict]):
-        async with semaphore:
-            user_payload = [{"id": b["block_id"], "text": b["text"]} for b in batch]
-            # 系统提示必须固定，用户提示只做风格说明，避免 JSON 约束被覆盖导致解析崩溃
-            user_content_prefix = ""
-            glossary_prompt = (glossary or "").strip()
-            if glossary_prompt:
-                user_content_prefix += f"参考全局术语表，严格遵循以下译名翻译：\n{glossary_prompt}\n\n"
-            style_prompt = (custom_prompt or "").strip()
-            if style_prompt:
-                user_content_prefix += f"翻译风格要求：{style_prompt}\n\n"
-            if context:
-                user_content_prefix += "以下是上文参考语境（仅供消歧和语气参考，请勿翻译这部分）：\n"
-                for ctx in context:
-                    user_content_prefix += f"原文：{ctx['original']}\n译文：{ctx['translation']}\n"
-                user_content_prefix += "\n请翻译以下内容：\n"
-            messages = [
-                {"role": "system", "content": config.build_system_prompt(target_language)},
+    async def request_batch(batch: List[dict]) -> Dict[str, str]:
+        user_payload = [{"id": b["block_id"], "text": b["text"]} for b in batch]
+        user_content_parts = [
+            "Translate the passages in <passages_json> into natural target-language prose.",
+            "Return only a JSON array. Each item must contain exactly the original id and its translation.",
+        ]
+        glossary_prompt = (glossary or "").strip()
+        if glossary_prompt:
+            user_content_parts.extend(["<glossary>", glossary_prompt, "</glossary>"])
+        style_prompt = _resolve_style_prompt(style_preset, custom_prompt)
+        if style_prompt:
+            user_content_parts.extend(["<style>", style_prompt, "</style>"])
+        context_excerpt = _build_context_excerpt(context, translation_profile)
+        if context_excerpt:
+            user_content_parts.append(context_excerpt)
+        user_content_parts.extend(
+            [
+                "<translation_rules>",
+                "- Translate meaning, tone, and narrative function, not source-language word order.",
+                "- Make dialogue sound native, character-appropriate, and speakable.",
+                "- Preserve paragraph boundaries; do not merge, split, summarize, or annotate passages.",
+                "- Keep numbers, names, invented terms, formatting-sensitive punctuation, and repeated phrases consistent.",
+                "- If literal wording sounds unnatural, choose an idiomatic equivalent that preserves intent.",
+                "- Do not explain, summarize, censor, add notes, or wrap output in Markdown.",
+                "</translation_rules>",
+            ]
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": config.build_system_prompt(target_language, translation_profile),
+            },
                 {
                     "role": "user",
-                    "content": (
-                        f"{user_content_prefix}待翻译内容(JSON)："
-                        f"{json.dumps(user_payload, ensure_ascii=False)}"
-                    ),
+                    "content": "\n".join(user_content_parts)
+                    + f"\n<passages_json>{json.dumps(user_payload, ensure_ascii=False)}</passages_json>",
                 },
             ]
-            payload = build_chat_payload(
-                model=model,
-                temperature=temperature,
-                messages=messages,
-                base_url=base_url,
-                thinking_enabled=thinking_enabled,
+        payload = build_chat_payload(
+            model=model,
+            temperature=temperature,
+            messages=messages,
+            base_url=base_url,
+            thinking_enabled=thinking_enabled,
+        )
+        content = await _call_model(client, payload)
+        parsed = extract_json_array(content)
+        if translation_profile == "refine":
+            parsed = await _run_refinement_pass(
+                client,
+                parsed,
+                {b["block_id"]: b["text"] for b in batch},
+                target_language,
+                glossary_prompt,
+                style_prompt,
+                model,
+                temperature,
+                base_url,
+                thinking_enabled,
             )
-            try:
-                content = await _call_model(client, payload)
-                parsed = extract_json_array(content)
-                received_ids = set()
-                for item in parsed:
-                    if not isinstance(item, dict) or "id" not in item or "translation" not in item:
-                        raise TranslationError("response item missing fields")
-                    received_ids.add(item["id"])
-                    unit_results[item["id"]] = item["translation"]
-                # 校验覆盖所有输入 id，避免漏翻
-                input_ids = {b["block_id"] for b in batch}
-                if received_ids != input_ids:
-                    raise TranslationError("response ids mismatch input")
-            except Exception as exc:  # 捕获重试终止后的异常，记录失败
+        return _validate_translation_items(parsed, batch)
+
+    async def request_with_fallback(batch: List[dict]) -> None:
+        try:
+            unit_results.update(await request_batch(batch))
+            return
+        except Exception as exc:
+            if len(batch) <= 1:
                 for b in batch:
                     unit_failures.append(
                         {
@@ -308,6 +456,15 @@ async def translate_batches(
                             "text_snippet": b.get("text", "")[:50],
                         }
                     )
+                return
+
+        midpoint = max(1, len(batch) // 2)
+        await request_with_fallback(batch[:midpoint])
+        await request_with_fallback(batch[midpoint:])
+
+    async def handle_batch(batch: List[dict]):
+        async with semaphore:
+            await request_with_fallback(batch)
 
     batches = _chunk_list(units, batch_size)
     async with httpx.AsyncClient(base_url=base_url, headers=headers) as client:
@@ -347,14 +504,7 @@ async def generate_glossary(
     target_language: str,
     thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
 ) -> str:
-    text_samples = []
-    char_count = 0
-    for b in blocks:
-        text_samples.append(b["text"])
-        char_count += len(b["text"])
-        if char_count > 15000:
-            break
-            
+    text_samples = sample_blocks_for_glossary(blocks)
     if not text_samples:
         return ""
     

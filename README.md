@@ -1,35 +1,50 @@
-# 纸渡 (Paperford)
+# Paperford - 本地 EPUB 双语翻译器
 
 [English README](README_EN.md)
 
-一个本地运行的 FastAPI + React Web 应用，用于把 EPUB 电子书翻译成行间双语版本。
+Paperford 是一个本地运行的 EPUB 双语翻译工作台。它把长篇 EPUB 解析成可控的文本块，通过 OpenAI 兼容接口批量翻译，再生成原文与译文交错排版的双语 EPUB。
 
-工作流程：
+它的目标不是做“能用就行”的机器直译，而是提供更接近编辑工作流的控制：术语表、翻译档位、风格预设、上下文延续、缓存、失败重试和本地隐私边界。
 
-1. 上传 `.epub` 文件。
-2. 按 EPUB 阅读顺序抽取标题、段落和列表文本。
-3. 调用兼容 OpenAI Chat Completions 的模型接口批量翻译。
-4. 把译文插回原 EPUB 文本块后方。
-5. 下载生成的双语 EPUB。
+![Paperford home screen](docs/assets/paperford-home.png)
 
-## 当前能力
+## 为什么叫 Paperford
 
-- 新版 Web UI：React + Vite + TypeScript。
-- 后端 API：FastAPI + 单任务本地队列。
-- 支持 OpenAI、DeepSeek、xAI、Gemini OpenAI 兼容接口。
-- 支持当前页面会话内添加自定义 Provider 和 Base URL。
-- 支持中文/英文界面切换，语言选择会保存在浏览器。
-- 支持获取模型列表和连接测试。
-- 支持从页面清除 SQLite 翻译缓存。
-- 支持自动提取术语表，并在翻译时应用全局术语。
-- 支持批量翻译、并发控制、暂停、继续、停止。
-- 支持 SQLite 翻译缓存，重复文本和相同配置不会重复请求。
-- 支持选择目标语言和自定义目标语言，目标语言会参与缓存 key。
-- 支持 Thinking 模式开关，默认关闭，可按模型能力手动开启。
-- 支持自定义翻译风格提示词。
-- 支持对长段落做 token 估算并在请求模型前自动拆分，译文会合并回原段落。
+Paperford 可以理解为 “paper + ford”：把一本书从原文渡到另一种语言的本地工具。为了让 GitHub 访客一眼看懂用途，本项目现在统一使用更明确的展示名：
 
-## 安装
+**Paperford - Local EPUB Bilingual Translator**
+
+## 核心亮点
+
+- 本地 Web 应用：FastAPI 后端 + React/Vite 前端，一条命令启动。
+- EPUB 双语输出：保留原文结构，把译文插入到对应文本块后方。
+- OpenAI 兼容接口：支持 OpenAI、DeepSeek、xAI、Gemini 兼容端点和自定义 Base URL。
+- 更自然的翻译控制：快速初译、均衡、精修三个档位，内置文学、忠实、网文、非虚构风格。
+- 自动术语表：从书稿前段、中段、后段抽样提取人物、地名、组织和专有名词。
+- 长段落处理：按 token 估算自动拆分长文本，翻译后合并回原段落。
+- 本地缓存：SQLite 缓存相同文本和相同配置，减少重复请求和成本。
+- 进度面板：显示速度、预计剩余时间、批次耗时、缓存命中和失败数。
+- 隐私边界清晰：EPUB 文件留在本机；API Key 只保存在当前页面内存中。
+
+![Paperford progress and settings](docs/assets/paperford-progress-settings.png)
+
+## 快速开始
+
+```bash
+git clone https://github.com/zommmo/paperford.git
+cd paperford
+./run_web.sh
+```
+
+启动后打开：
+
+```text
+http://127.0.0.1:8000
+```
+
+`run_web.sh` 会自动准备 Python 虚拟环境、安装依赖、用 Vite 构建前端，并启动本地 FastAPI 服务。macOS 上如果安装了 Homebrew `node@22`，脚本会优先使用它。
+
+## 手动安装
 
 ```bash
 python3 -m venv .venv
@@ -37,115 +52,83 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cd frontend
 npm install
+npm run build
+cd ..
+.venv/bin/python -m uvicorn api_app:app --host 127.0.0.1 --port 8000
 ```
 
-## 运行
+## 使用流程
 
-推荐使用项目脚本启动新版 Web UI：
-
-```bash
-./run_web.sh
-```
-
-启动后打开：
-
-```text
-http://127.0.0.1:5173
-```
-
-也可以使用 Makefile：
-
-```bash
-make run
-```
-
-## 使用说明
-
-1. 在右侧配置区填写 API Key。
-2. 选择 API 服务商；如需临时兼容接口，可在“添加自定义 Provider”中加入名称和 Base URL。
-3. 填写或获取模型名称。
-4. 上传 EPUB 后可以先点“解析预览”确认文本抽取结果。
-5. 可选：点击“自动提取术语”，让模型从书稿开头提取人物、地名、组织、专有名词等译名建议。
-6. 调整目标语言、温度、批大小、并发数、最大文本块数、Thinking 模式、翻译风格和全局术语表。
+1. 在右侧设置区填写 API Key。
+2. 选择 Provider，或添加只在当前页面会话中保存的自定义 Provider。
+3. 填写模型名称，或点击“获取模型”。
+4. 上传 EPUB，可先点击“解析预览”确认抽取结果。
+5. 选择翻译档位、风格预设、目标语言、温度、批大小、并发数和最大文本块数。
+6. 可选：点击“自动提取术语”，或手动维护全局术语表。
 7. 点击“开始翻译”，完成后下载双语 EPUB。
-8. 如需重新请求所有译文，可在调试区清除翻译缓存。
+8. 如需强制重新翻译，可在调试区清除翻译缓存。
 
-安全提醒：自定义 Provider 的 Base URL 会接收您输入的 API Key。只应填写可信的 LLM 服务商或您自己控制的代理端点。
+## 翻译质量控制
 
-## 自动提取术语表
+Paperford 会把用户风格要求、术语表、上下文片段和输出 JSON 约束分层组织，避免自定义 prompt 破坏结构化输出。
 
-“自动提取术语”不会把整本书发给 AI，而是只截取原文开头约 `15000` 个字符，请模型识别核心人物、关键地名、组织势力和其他专有名词，并生成形如 `原文=译名` 的全局术语表。
+三个翻译档位的定位：
 
-这样设计主要是为了平衡准确性、速度和成本：
+- **快速初译**：更大的处理窗口，更少上下文，适合快速扫书或低成本初稿。
+- **均衡**：默认模式，兼顾上下文、速度和译文自然度。
+- **精修**：更小窗口并增加润色步骤，适合对文风要求更高的长篇阅读副本。
 
-- 避免上下文窗口溢出：完整 EPUB 小说可能有数十万字，直接发送全书很容易超过模型 token 限制。
-- 降低调用成本和等待时间：术语提取只需要一次较小的请求，不会让前端长时间等待。
-- 利用“首因效应”：大多数小说会在前几章集中出现核心人物、地点和阵营，前 `15000` 个字符通常足够生成可用的初始术语表。
+内置风格预设：
 
-如果重要角色或地点在很后面的章节才出现，自动提取可能会漏掉。此时可以在“全局术语表”输入框中手动补充，例如：
+- **文学自然**：保留叙事声音、节奏、意象和对话自然度。
+- **忠实克制**：尽量贴近原文信息顺序和细节，不主动扩写。
+- **轻小说 / 网文**：更直接、顺畅、节奏感更强。
+- **非虚构**：强调术语准确、逻辑清晰和低修辞负担。
+
+## 自动术语表
+
+自动提取术语不会把整本书发给模型，而是从前段、中段和后段抽样约 `18000` 个字符，请模型提取主要人物、地点、阵营、组织和专有名词。
+
+术语表格式：
 
 ```text
-LateHero=晚期英雄
+Alice=爱丽丝
+King's Landing=君临城
 Silver City=银城
 ```
 
-翻译时，系统会把全局术语表随每批文本一起发送给模型，要求模型尽量遵循这些统一译名。术语表内容也会参与缓存 key，因此修改术语后会生成新的缓存记录，避免复用旧译文。
+术语表会参与缓存 key。修改术语后，Paperford 会生成新的缓存记录，避免复用旧译文。
 
 ## 输出和缓存
 
-- 生成文件会写入 `output/` 目录，并通过页面下载按钮提供下载。
+- 生成的 EPUB 写入 `output/`，也可在页面里直接下载。
 - 翻译缓存默认保存在 `translations.sqlite3`。
-- 缓存 key 包含文本 hash、模型、提示词版本、目标语言、参数、自定义风格和术语表 hash。
-- 修改模型、目标语言、温度、Thinking 模式、自定义风格或术语表后，会使用新的缓存 key。
+- 缓存 key 包含文本 hash、模型、prompt 版本、目标语言、温度、Thinking 模式、翻译档位、风格预设、自定义风格和术语表 hash。
+
+## 安全说明
+
+- 上传文件必须是 `.epub`，不能为空，默认最大 100MB。
+- 后端限制翻译参数范围：温度 `0-2`，批大小 `1-50`，并发 `1-20`，最大文本块 `0-200000`。
+- API Key 只保存在当前页面内存中，刷新页面即丢失。
+- 自定义 Provider 的 Base URL 会收到你输入的 API Key，只应填写可信服务商或你自己控制的代理端点。
+- Thinking 模式默认关闭；只有确认模型支持时才建议开启。
 
 ## 开发验证
 
-项目的核心逻辑测试使用 Python 标准库 `unittest`：
-
 ```bash
 .venv/bin/python -W error::ResourceWarning -m unittest discover -s tests
+cd frontend && npm run build
+cd frontend && npm audit --audit-level=moderate
 ```
 
-前端构建验证：
+GitHub Actions 会在 push 和 pull request 时运行后端测试与前端构建；CodeQL 和 Dependabot 用于基础安全扫描和依赖更新提醒。
 
-```bash
-cd frontend
-npm run build
-```
+## 当前限制
 
-GitHub Actions 会在 push 和 pull request 时运行后端测试与前端构建；CodeQL 和 Dependabot 用于基础安全扫描与依赖更新提醒。
-
-## 安全限制
-
-- 上传文件必须是 `.epub`，不能为空，默认最大 100MB。
-- 翻译参数会在后端限制范围：温度 `0-2`，批大小 `1-50`，并发 `1-20`，最大文本块 `0-200000`。
-- API Key 只保存在当前页面内存中，刷新页面即丢失。
-- 自定义 Provider 只保存在当前页面会话，刷新后会消失。
-- Thinking 模式默认关闭；并非所有模型都支持该参数，只有需要时才建议开启。
-
-## 主要文件
-
-- `api_app.py`：FastAPI 后端接口。
-- `job_manager.py`：新版 Web UI 使用的单任务队列管理。
-- `frontend/`：React + Vite + TypeScript 新版前端。
-- `translation_job.py`：翻译任务状态、缓存命中、批处理推进和输出生成。
-- `epub_processor.py`：EPUB 文本抽取与译文回填。
-- `translator.py`：模型请求、批处理翻译和 JSON 响应解析。
-- `provider_tools.py`：Provider Base URL 规范化、模型列表获取和连接测试。
-- `database.py`：SQLite 翻译缓存。
-
-## 已知限制
-
-- 当前只支持单任务队列，同一时间只能处理一本 EPUB。
-- 自定义 Provider 只保存在当前页面会话，刷新后会消失。
-- 只抽取 `h1-h6`、`p`、`li` 标签中的文本。
-- 失败段落可单独重试；重试前下载的 EPUB 仍会用 `[未翻译]` 占位。
-
-## API Key 安全提醒
-
-本项目完全在本地运行，所有 API 请求均直接从您的本地机器发出，直接连向您配置的 LLM 服务商（或代理）的 API 端点。
-您的 API Key **仅保存在当前页面的内存中**，刷新页面即会丢失，绝对不会被上传到任何第三方服务器。
-**请妥善保管您的 API Key，不要将其硬编码在代码中提交到公共代码仓库。**
+- 同一时间只能处理一本 EPUB。
+- 自定义 Provider 只保存在当前页面会话中，刷新后会消失。
+- 文本抽取目前覆盖 `h1-h6`、`p`、`li` 标签。
+- 失败段落可重试；重试前下载的 EPUB 会对失败段落使用 `[未翻译]` 占位。
 
 ## License
 

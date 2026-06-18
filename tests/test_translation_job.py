@@ -32,6 +32,8 @@ class TranslationJobTests(unittest.TestCase):
         self.assertIn('"target_language":"Chinese"', chinese)
         self.assertIn('"thinking_enabled":false', chinese)
         self.assertIn('"temperature":0.7', chinese)
+        self.assertIn('"translation_profile":"balanced"', chinese)
+        self.assertIn('"style_preset":"literary"', chinese)
         self.assertNotEqual(chinese, japanese)
 
     def test_params_json_includes_thinking_mode(self):
@@ -119,29 +121,18 @@ class TranslationJobTests(unittest.TestCase):
             )
             cache_key = job["pending_blocks"][0]["cache_key"]
 
-            async def fake_translate(
-                batch,
-                api_key,
-                base_url,
-                model,
-                temperature,
-                batch_size,
-                concurrency,
-                prompt,
-                target_language,
-                glossary,
-                context,
-                thinking_enabled,
-            ):
-                self.assertEqual(api_key, "key")
-                self.assertEqual(base_url, "https://api.example.com/v1")
-                self.assertEqual(model, "model-a")
-                self.assertEqual(temperature, 0.7)
-                self.assertEqual(batch_size, 1)
-                self.assertEqual(concurrency, 1)
-                self.assertEqual(prompt, "literal")
-                self.assertEqual(target_language, "Chinese")
-                self.assertFalse(thinking_enabled)
+            async def fake_translate(batch, options):
+                self.assertEqual(options.api_key, "key")
+                self.assertEqual(options.base_url, "https://api.example.com/v1")
+                self.assertEqual(options.model, "model-a")
+                self.assertEqual(options.temperature, 0.7)
+                self.assertEqual(options.batch_size, 1)
+                self.assertEqual(options.concurrency, 1)
+                self.assertEqual(options.custom_prompt, "literal")
+                self.assertEqual(options.target_language, "Chinese")
+                self.assertFalse(options.thinking_enabled)
+                self.assertEqual(options.translation_profile, "balanced")
+                self.assertEqual(options.style_preset, "literary")
                 return {batch[0]["block_id"]: "你好"}, []
 
             asyncio.run(process_next_batch(job, "key", db_path, fake_translate))
@@ -176,22 +167,9 @@ class TranslationJobTests(unittest.TestCase):
                 now=10,
             )
 
-            async def fake_translate(
-                batch,
-                api_key,
-                base_url,
-                model,
-                temperature,
-                batch_size,
-                concurrency,
-                prompt,
-                target_language,
-                glossary,
-                context,
-                thinking_enabled,
-            ):
-                self.assertEqual(batch_size, 2)
-                self.assertEqual(concurrency, 3)
+            async def fake_translate(batch, options):
+                self.assertEqual(options.batch_size, 2)
+                self.assertEqual(options.concurrency, 3)
                 self.assertEqual(len(batch), 6)
                 return {block["block_id"]: f"译文：{block['text']}" for block in batch}, []
 

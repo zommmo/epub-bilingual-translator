@@ -1,4 +1,5 @@
 .venv/
+.venv.broken.*/
 __pycache__/
 .DS_Store
 *.db
@@ -12,4 +13,3 @@ frontend/.vite/
 frontend/*.tsbuildinfo
 .idea/
 .streamlit/
-AGENTS.md

@@ -1,18 +1,12 @@
 import json
 import os
 import time
-from typing import Awaitable, Callable
 
 import config
 from database import bulk_get, make_cache_key, make_prompt_hash, set_many
 from epub_processor import extract_blocks, inject_translations
 from translator import translate_batches
-
-
-TranslateFunc = Callable[
-    [list[dict], str, str, str, float, int, int, str, str, str, list[dict], bool],
-    Awaitable[tuple[dict[str, str], list[dict]]],
-]
+from translation_types import TranslateFunc, TranslationOptions
 
 
 def empty_job_state() -> dict:
@@ -42,6 +36,12 @@ def empty_job_state() -> dict:
         "thinking_enabled": config.DEFAULT_THINKING_ENABLED,
         "prompt_hash": "",
         "target_language": config.DEFAULT_TARGET_LANGUAGE,
+        "translation_profile": config.DEFAULT_TRANSLATION_PROFILE,
+        "style_preset": config.DEFAULT_STYLE_PRESET,
+        "last_window_size": 0,
+        "last_batch_seconds": 0.0,
+        "avg_batch_seconds": 0.0,
+        "batches_completed": 0,
     }
 
 
@@ -49,6 +49,8 @@ def build_params_json(
     temperature: float,
     target_language: str = config.DEFAULT_TARGET_LANGUAGE,
     thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
+    translation_profile: str = config.DEFAULT_TRANSLATION_PROFILE,
+    style_preset: str = config.DEFAULT_STYLE_PRESET,
 ) -> str:
     # 稳定序列化，避免同一参数因空白或顺序不同导致缓存 key 变化。
     return json.dumps(
@@ -56,6 +58,8 @@ def build_params_json(
             "target_language": target_language or config.DEFAULT_TARGET_LANGUAGE,
             "thinking_enabled": bool(thinking_enabled),
             "temperature": float(temperature),
+            "translation_profile": translation_profile or config.DEFAULT_TRANSLATION_PROFILE,
+            "style_preset": style_preset or config.DEFAULT_STYLE_PRESET,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -98,10 +102,18 @@ def create_job_from_blocks(
     db_path: str,
     target_language: str = config.DEFAULT_TARGET_LANGUAGE,
     thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
+    translation_profile: str = config.DEFAULT_TRANSLATION_PROFILE,
+    style_preset: str = config.DEFAULT_STYLE_PRESET,
     now: float | None = None,
 ) -> dict:
     start_ts = time.time() if now is None else now
-    params_json = build_params_json(temperature, target_language, thinking_enabled)
+    params_json = build_params_json(
+        temperature,
+        target_language,
+        thinking_enabled,
+        translation_profile,
+        style_preset,
+    )
     keyed_blocks, prompt_hash = apply_cache_keys(blocks, model, params_json, custom_prompt, glossary)
 
     cache_hits = bulk_get(db_path, [block["cache_key"] for block in keyed_blocks])
@@ -145,6 +157,12 @@ def create_job_from_blocks(
         "thinking_enabled": bool(thinking_enabled),
         "prompt_hash": prompt_hash,
         "target_language": target_language or config.DEFAULT_TARGET_LANGUAGE,
+        "translation_profile": translation_profile or config.DEFAULT_TRANSLATION_PROFILE,
+        "style_preset": style_preset or config.DEFAULT_STYLE_PRESET,
+        "last_window_size": 0,
+        "last_batch_seconds": 0.0,
+        "avg_batch_seconds": 0.0,
+        "batches_completed": 0,
     }
 
 
@@ -162,6 +180,8 @@ def create_translation_job(
     db_path: str,
     target_language: str = config.DEFAULT_TARGET_LANGUAGE,
     thinking_enabled: bool = config.DEFAULT_THINKING_ENABLED,
+    translation_profile: str = config.DEFAULT_TRANSLATION_PROFILE,
+    style_preset: str = config.DEFAULT_STYLE_PRESET,
 ) -> dict:
     blocks = extract_blocks(epub_bytes)
     if max_blocks > 0:
@@ -185,6 +205,8 @@ def create_translation_job(
         db_path,
         target_language,
         thinking_enabled,
+        translation_profile,
+        style_preset,
     )
 
 
@@ -242,22 +264,35 @@ async def process_next_batch(
     concurrency = int(job.get("concurrency") or 1)
     model = job.get("model") or config.MODEL
     base_url = job.get("base_url") or config.BASE_URL
-    window_size = max(batch_size * max(concurrency, 1), batch_size)
+    remaining = len(job["pending_blocks"])
+    profile = job.get("translation_profile") or config.DEFAULT_TRANSLATION_PROFILE
+    if profile == "fast":
+        window_size = min(remaining, max(batch_size * max(concurrency, 1) * 2, batch_size))
+    elif profile == "refine":
+        window_size = min(remaining, max(batch_size, batch_size * max(concurrency, 1) // 2))
+    else:
+        window_size = min(remaining, max(batch_size * max(concurrency, 1), batch_size))
     batch = job["pending_blocks"][:window_size]
+    started_at = time.time()
 
+    options = TranslationOptions(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        temperature=temperature,
+        batch_size=batch_size,
+        concurrency=concurrency,
+        custom_prompt=job.get("custom_prompt") or "",
+        target_language=job.get("target_language") or config.DEFAULT_TARGET_LANGUAGE,
+        glossary=job.get("glossary") or "",
+        context=job.get("recent_context") or [],
+        thinking_enabled=bool(job.get("thinking_enabled", config.DEFAULT_THINKING_ENABLED)),
+        translation_profile=profile,
+        style_preset=job.get("style_preset") or config.DEFAULT_STYLE_PRESET,
+    )
     fresh_results, batch_failures = await translate_func(
         batch,
-        api_key,
-        base_url,
-        model,
-        temperature,
-        batch_size,
-        concurrency,
-        job.get("custom_prompt") or "",
-        job.get("target_language") or config.DEFAULT_TARGET_LANGUAGE,
-        job.get("glossary") or "",
-        job.get("recent_context") or [],
-        bool(job.get("thinking_enabled", config.DEFAULT_THINKING_ENABLED)),
+        options,
     )
     job["results_map"].update(fresh_results)
     job["failures"].extend(_attach_failed_blocks(batch_failures, batch))
@@ -293,6 +328,15 @@ async def process_next_batch(
     set_many(db_path, rows)
 
     job["processed_blocks"] += len(batch)
+    elapsed = time.time() - started_at
+    completed_batches = int(job.get("batches_completed") or 0) + 1
+    previous_avg = float(job.get("avg_batch_seconds") or 0.0)
+    job["last_window_size"] = len(batch)
+    job["last_batch_seconds"] = elapsed
+    job["avg_batch_seconds"] = (
+        elapsed if completed_batches == 1 else ((previous_avg * (completed_batches - 1)) + elapsed) / completed_batches
+    )
+    job["batches_completed"] = completed_batches
     job["last_update_time"] = time.time()
     job["pending_blocks"] = job["pending_blocks"][len(batch) :]
     if not job["pending_blocks"]:
@@ -323,6 +367,13 @@ def job_counts(job: dict) -> dict:
     if miss_count is None:
         miss_count = max(total_count - cache_hit_count, 0)
     translated_count = len(job.get("results_map") or {})
+    processed_count = int(job.get("processed_blocks") or 0)
+    pending_count = len(job.get("pending_blocks") or [])
+    elapsed_seconds = 0.0
+    if job.get("start_time"):
+        elapsed_seconds = max(0.0, time.time() - float(job["start_time"]))
+    blocks_per_minute = (processed_count / elapsed_seconds * 60.0) if elapsed_seconds > 0 and processed_count else 0.0
+    eta_seconds = (pending_count / blocks_per_minute * 60.0) if blocks_per_minute > 0 and pending_count else 0.0
     return {
         "total": total_count,
         "cache_hits": cache_hit_count,
@@ -330,4 +381,7 @@ def job_counts(job: dict) -> dict:
         "translated": translated_count,
         "placeholders": max(total_count - translated_count, 0),
         "failures": len(job.get("failures") or []),
+        "blocks_per_minute": round(blocks_per_minute, 1),
+        "eta_seconds": int(eta_seconds),
+        "elapsed_seconds": int(elapsed_seconds),
     }

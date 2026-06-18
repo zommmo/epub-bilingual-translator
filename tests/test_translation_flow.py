@@ -28,38 +28,27 @@ class TranslationFlowTests(unittest.TestCase):
                 temperature=0.0,
                 batch_size=1,
                 concurrency=1,
-            base_url="https://api.example.com/v1",
-            custom_prompt="literal",
-            glossary="",
-            max_blocks=0,
+                base_url="https://api.example.com/v1",
+                custom_prompt="literal",
+                glossary="",
+                max_blocks=0,
                 db_path=db_path,
                 target_language="Chinese",
             )
             cache_keys = [block["cache_key"] for block in job["pending_blocks"]]
 
-            async def fake_translate(
-                batch,
-                api_key,
-                base_url,
-                model,
-                temperature,
-                batch_size,
-                concurrency,
-                prompt,
-                target_language,
-                glossary,
-                context,
-                thinking_enabled,
-            ):
-                self.assertEqual(api_key, "key")
-                self.assertEqual(base_url, "https://api.example.com/v1")
-                self.assertEqual(model, "model-a")
-                self.assertEqual(temperature, 0.0)
-                self.assertEqual(batch_size, 1)
-                self.assertEqual(concurrency, 1)
-                self.assertEqual(prompt, "literal")
-                self.assertEqual(target_language, "Chinese")
-                self.assertFalse(thinking_enabled)
+            async def fake_translate(batch, options):
+                self.assertEqual(options.api_key, "key")
+                self.assertEqual(options.base_url, "https://api.example.com/v1")
+                self.assertEqual(options.model, "model-a")
+                self.assertEqual(options.temperature, 0.0)
+                self.assertEqual(options.batch_size, 1)
+                self.assertEqual(options.concurrency, 1)
+                self.assertEqual(options.custom_prompt, "literal")
+                self.assertEqual(options.target_language, "Chinese")
+                self.assertFalse(options.thinking_enabled)
+                self.assertEqual(options.translation_profile, "balanced")
+                self.assertEqual(options.style_preset, "literary")
                 return {
                     block["block_id"]: f"译文：{block['text']}"
                     for block in batch

@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
 type Language = "zh" | "en";
 type Provider = { id: string; name: string; base_url: string; custom?: boolean };
+type StylePreset = { id: string; prompt: string };
 type PreviewBlock = { block_id: string; tag: string; text: string };
 type Failure = { id: string; text_snippet: string; reason: string };
 type JobStatus = {
@@ -16,15 +17,25 @@ type JobStatus = {
     translated: number;
     placeholders: number;
     failures: number;
+    blocks_per_minute: number;
+    eta_seconds: number;
+    elapsed_seconds: number;
   };
   failures: Failure[];
   output_name?: string;
   can_download: boolean;
   target_language: string;
+  translation_profile?: string;
+  style_preset?: string;
+  last_window_size?: number;
+  last_batch_seconds?: number;
+  avg_batch_seconds?: number;
 };
 type AppConfig = {
   providers: Provider[];
   target_languages: string[];
+  translation_profiles: string[];
+  style_presets: StylePreset[];
   defaults: {
     model: string;
     temperature: number;
@@ -33,6 +44,8 @@ type AppConfig = {
     max_blocks: number;
     target_language: string;
     thinking_enabled: boolean;
+    translation_profile: string;
+    style_preset: string;
   };
 };
 
@@ -49,7 +62,10 @@ const emptyJob: JobStatus = {
     misses: 0,
     translated: 0,
     placeholders: 0,
-    failures: 0
+    failures: 0,
+    blocks_per_minute: 0,
+    eta_seconds: 0,
+    elapsed_seconds: 0
   },
   failures: [],
   can_download: false,
@@ -60,17 +76,23 @@ const text = {
   zh: {
     localPress: "local bilingual press",
     appTitle: "纸渡",
-    heroCopy: "把一本书慢慢拆成段落、缓存、译文和纸面秩序。",
+    heroCopy: "为长篇阅读准备更自然的双语译文，而不是一股机器味的直译稿。",
     language: "Language",
+    workflowTitle: "一本书，一条本地翻译流水线",
     manuscript: "Manuscript",
     manuscriptTitle: "书稿与流程",
     chooseEpub: "选择一本 EPUB",
     uploadHint: "上传后可先解析预览，再开始翻译。",
+    readyFile: "EPUB",
+    readyApiKey: "API Key",
+    readyModel: "模型",
+    readyBaseUrl: "Base URL",
     parsePreview: "解析预览",
     startTranslation: "开始翻译",
     restartTranslation: "重新开始翻译",
     progress: "Progress",
     progressTitle: "翻译状态",
+    qualityLane: "质量与速度",
     pause: "暂停",
     resume: "继续",
     clear: "清空",
@@ -80,6 +102,9 @@ const text = {
     failed: "失败",
     pending: "剩余",
     status: "状态",
+    speed: "速度",
+    eta: "预计剩余",
+    avgLatency: "平均批次耗时",
     download: "下载",
     bilingualEpub: "双语 EPUB",
     failures: "失败段落",
@@ -90,6 +115,8 @@ const text = {
     blockUnit: "个文本块",
     settings: "Settings",
     settingsTitle: "译者配置",
+    translationProfile: "翻译档位",
+    stylePreset: "风格预设",
     provider: "Provider",
     apiKey: "API Key",
     baseUrl: "Base URL",
@@ -132,10 +159,14 @@ const text = {
     previewFailed: "解析失败",
     fetchModelsFailed: "获取模型失败",
     healthFailed: "连接测试失败",
+    healthOk: "连接测试成功。",
+    healthWarning: "连接测试完成，但服务返回异常：{error}",
     createJobFailed: "创建任务失败",
     providerSaved: "已添加自定义 Provider。",
     providerDeleted: "已删除自定义 Provider。",
     statusSummary: "已处理 {processed}/{total}，剩余 {pending}，当前进度 {progress}%。",
+    pipelineSummary: "当前档位：{profile} · 风格：{style} · 速度：{speed} 块/分钟",
+    metricsSummary: "最近窗口 {window} 块，平均每批 {avg}s，预计剩余 {eta}",
     languageNames: {
       Chinese: "中文",
       English: "英文",
@@ -151,22 +182,40 @@ const text = {
       paused: "已暂停",
       done: "已完成",
       empty: "无文本"
+    },
+    profileNames: {
+      fast: "快速初译",
+      balanced: "均衡",
+      refine: "精修"
+    },
+    styleNames: {
+      auto: "仅自定义",
+      literary: "文学自然",
+      faithful: "忠实克制",
+      webnovel: "轻小说 / 网文",
+      nonfiction: "非虚构"
     }
   },
   en: {
     localPress: "local bilingual press",
     appTitle: "Paperford",
-    heroCopy: "Turn a book into ordered passages, cache hits, translations, and a quiet reading copy.",
+    heroCopy: "Produce cleaner bilingual reading copies with less machine-translation stiffness and better editorial control.",
     language: "Language",
+    workflowTitle: "One local pipeline for long-form translation",
     manuscript: "Manuscript",
     manuscriptTitle: "Book & Workflow",
     chooseEpub: "Choose an EPUB",
     uploadHint: "Parse a preview after upload, then start translation.",
+    readyFile: "EPUB",
+    readyApiKey: "API Key",
+    readyModel: "Model",
+    readyBaseUrl: "Base URL",
     parsePreview: "Parse Preview",
     startTranslation: "Start Translation",
     restartTranslation: "Restart Translation",
     progress: "Progress",
     progressTitle: "Translation Status",
+    qualityLane: "Quality & Speed",
     pause: "Pause",
     resume: "Resume",
     clear: "Clear",
@@ -176,6 +225,9 @@ const text = {
     failed: "Failures",
     pending: "Pending",
     status: "Status",
+    speed: "Speed",
+    eta: "ETA",
+    avgLatency: "Avg Batch Time",
     download: "Download",
     bilingualEpub: "bilingual EPUB",
     failures: "Failed Blocks",
@@ -186,6 +238,8 @@ const text = {
     blockUnit: "text blocks",
     settings: "Settings",
     settingsTitle: "Translator Settings",
+    translationProfile: "Translation Profile",
+    stylePreset: "Style Preset",
     provider: "Provider",
     apiKey: "API Key",
     baseUrl: "Base URL",
@@ -228,10 +282,14 @@ const text = {
     previewFailed: "Preview failed",
     fetchModelsFailed: "Failed to fetch models",
     healthFailed: "Connection test failed",
+    healthOk: "Connection test succeeded.",
+    healthWarning: "Connection test completed, but the provider reported a problem: {error}",
     createJobFailed: "Failed to create job",
     providerSaved: "Custom Provider added.",
     providerDeleted: "Custom Provider deleted.",
     statusSummary: "Processed {processed}/{total}, {pending} pending, {progress}% complete.",
+    pipelineSummary: "Profile: {profile} · Style: {style} · Speed: {speed} blocks/min",
+    metricsSummary: "Latest window {window} blocks, avg batch {avg}s, ETA {eta}",
     languageNames: {
       Chinese: "Chinese",
       English: "English",
@@ -247,6 +305,18 @@ const text = {
       paused: "Paused",
       done: "Done",
       empty: "Empty"
+    },
+    profileNames: {
+      fast: "Fast Draft",
+      balanced: "Balanced",
+      refine: "Refine"
+    },
+    styleNames: {
+      auto: "Custom Only",
+      literary: "Literary Natural",
+      faithful: "Faithful",
+      webnovel: "Web Novel",
+      nonfiction: "Nonfiction"
     }
   }
 } as const;
@@ -294,6 +364,15 @@ function numberOrDefault(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function formatSeconds(totalSeconds: number, lang: Language): string {
+  if (!totalSeconds) return lang === "zh" ? "约 0 分钟" : "~0 min";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return lang === "zh" ? `${seconds} 秒` : `${seconds}s`;
+  if (seconds === 0) return lang === "zh" ? `${minutes} 分钟` : `${minutes}m`;
+  return lang === "zh" ? `${minutes} 分 ${seconds} 秒` : `${minutes}m ${seconds}s`;
+}
+
 function App() {
   const [lang, setLang] = useState<Language>(initialLanguage);
   const copy = text[lang];
@@ -318,6 +397,8 @@ function App() {
   const [concurrency, setConcurrency] = useState("4");
   const [maxBlocks, setMaxBlocks] = useState("0");
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [translationProfile, setTranslationProfile] = useState("balanced");
+  const [stylePreset, setStylePreset] = useState("literary");
   const [customPrompt, setCustomPrompt] = useState("");
   const [glossary, setGlossary] = useState("");
   const [extractingGlossary, setExtractingGlossary] = useState(false);
@@ -354,6 +435,8 @@ function App() {
       setConcurrency(String(data.defaults.concurrency));
       setMaxBlocks(String(data.defaults.max_blocks));
       setThinkingEnabled(Boolean(data.defaults.thinking_enabled));
+      setTranslationProfile(data.defaults.translation_profile);
+      setStylePreset(data.defaults.style_preset);
     }).catch((error) => setMessage(error.message));
   }, []);
 
@@ -379,12 +462,35 @@ function App() {
   }, [targetLanguage, customLanguage]);
 
   const statusName = copy.statusNames[job.status as keyof typeof copy.statusNames] || job.status;
+  const profileName =
+    copy.profileNames[(job.translation_profile || translationProfile) as keyof typeof copy.profileNames]
+    || job.translation_profile
+    || translationProfile;
+  const styleName =
+    copy.styleNames[(job.style_preset || stylePreset) as keyof typeof copy.styleNames]
+    || job.style_preset
+    || stylePreset;
   const statusSummary = copy.statusSummary
     .replace("{processed}", String(job.processed_blocks))
     .replace("{total}", String(job.counts.total))
     .replace("{pending}", String(job.pending_blocks))
     .replace("{progress}", String(job.progress));
+  const pipelineSummary = copy.pipelineSummary
+    .replace("{profile}", String(profileName))
+    .replace("{style}", String(styleName))
+    .replace("{speed}", String(job.counts.blocks_per_minute));
+  const metricsSummary = copy.metricsSummary
+    .replace("{window}", String(job.last_window_size || 0))
+    .replace("{avg}", String(job.avg_batch_seconds || 0))
+    .replace("{eta}", formatSeconds(job.counts.eta_seconds, lang));
   const canRetryFailures = job.status === "done" && job.failures.length > 0;
+  const canStart = Boolean(file && apiKey.trim() && model.trim() && baseUrl.trim()) && !busy && job.status !== "running";
+  const readiness = [
+    { label: copy.readyFile, ok: Boolean(file) },
+    { label: copy.readyApiKey, ok: Boolean(apiKey.trim()) },
+    { label: copy.readyModel, ok: Boolean(model.trim()) },
+    { label: copy.readyBaseUrl, ok: Boolean(baseUrl.trim()) }
+  ];
 
   async function refreshJob() {
     const data = await jsonRequest<JobStatus>("/api/jobs/current");
@@ -488,6 +594,11 @@ function App() {
         body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model, target_language: finalTargetLanguage })
       });
       setConnection(data);
+      if (data.ok) {
+        setMessage(copy.healthOk);
+      } else {
+        setMessage(copy.healthWarning.replace("{error}", String(data.error || copy.healthFailed)));
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : copy.healthFailed);
     } finally {
@@ -523,6 +634,8 @@ function App() {
     formData.append("glossary", glossary);
     formData.append("target_language", finalTargetLanguage);
     formData.append("thinking_enabled", String(thinkingEnabled));
+    formData.append("translation_profile", translationProfile);
+    formData.append("style_preset", stylePreset);
     formData.append("max_blocks", String(parsedMaxBlocks));
     try {
       if (job.status === "paused") {
@@ -611,6 +724,7 @@ function App() {
           <p className="eyebrow">{copy.localPress}</p>
           <h1>{copy.appTitle}</h1>
           <p className="hero-copy">{copy.heroCopy}</p>
+          <p className="hero-subcopy">{copy.workflowTitle}</p>
         </div>
         <div className="hero-side">
           <label className="language-switch">{copy.language}
@@ -640,9 +754,14 @@ function App() {
               <span>{file ? file.name : copy.chooseEpub}</span>
               <small>{copy.uploadHint}</small>
             </label>
+            <div className="readiness">
+              {readiness.map((item) => (
+                <span key={item.label} className={item.ok ? "ready" : ""}>{item.label}</span>
+              ))}
+            </div>
             <div className="actions">
               <button type="button" className="secondary" disabled={busy || !file} onClick={parsePreview}>{copy.parsePreview}</button>
-              <button type="submit" disabled={busy || job.status === "running"}>
+              <button type="submit" disabled={!canStart}>
                 {job.status === "paused" ? copy.restartTranslation : copy.startTranslation}
               </button>
             </div>
@@ -654,6 +773,8 @@ function App() {
                 <p className="section-kicker">{copy.progress}</p>
                 <h2>{copy.progressTitle}</h2>
                 <p className="status-line">{statusSummary}</p>
+                <p className="status-line subtle">{pipelineSummary}</p>
+                <p className="status-line subtle">{metricsSummary}</p>
               </div>
               <div className="job-actions">
                 <button className="secondary" disabled={job.status !== "running"} onClick={() => postJobAction("/api/jobs/current/pause")}>{copy.pause}</button>
@@ -669,6 +790,9 @@ function App() {
               <Metric label={copy.pending} value={job.pending_blocks} />
               <Metric label={copy.cacheHits} value={job.counts.cache_hits} />
               <Metric label={copy.failed} value={job.counts.failures} />
+              <Metric label={copy.speed} value={`${job.counts.blocks_per_minute}/min`} />
+              <Metric label={copy.eta} value={formatSeconds(job.counts.eta_seconds, lang)} />
+              <Metric label={copy.avgLatency} value={`${job.avg_batch_seconds || 0}s`} />
             </div>
             {job.can_download && (
               <button className="download" type="button" onClick={downloadOutput}>
@@ -718,6 +842,26 @@ function App() {
           <div className="panel-heading">
             <p className="section-kicker">{copy.settings}</p>
             <h2>{copy.settingsTitle}</h2>
+          </div>
+          <div className="settings-band">
+            <label>{copy.translationProfile}
+              <select value={translationProfile} onChange={(event) => setTranslationProfile(event.target.value)}>
+                {config?.translation_profiles.map((profile) => (
+                  <option key={profile} value={profile}>
+                    {copy.profileNames[profile as keyof typeof copy.profileNames] || profile}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>{copy.stylePreset}
+              <select value={stylePreset} onChange={(event) => setStylePreset(event.target.value)}>
+                {config?.style_presets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {copy.styleNames[preset.id as keyof typeof copy.styleNames] || preset.id}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           <label>{copy.provider}
             <select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
@@ -783,10 +927,10 @@ function App() {
           <label>{copy.stylePrompt}
             <textarea rows={3} value={customPrompt} onChange={(event) => setCustomPrompt(event.target.value)} placeholder={copy.promptPlaceholder} />
           </label>
-          <div className="field-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 500 }}>{copy.glossary}</span>
-                <button type="button" className="secondary compact" disabled={extractingGlossary} onClick={handleExtractGlossary} style={{ padding: '2px 8px', fontSize: '0.8em', margin: 0 }}>
+          <div className="field-group glossary-field">
+            <div className="field-head">
+                <span>{copy.glossary}</span>
+                <button type="button" className="secondary compact" disabled={extractingGlossary} onClick={handleExtractGlossary}>
                     {extractingGlossary ? copy.extracting : copy.extractGlossary}
                 </button>
             </div>

@@ -1,6 +1,6 @@
-# Paperford
+# EPUB Bilingual Translator
 
-**Local EPUB bilingual translator for cleaner long-form reading copies.**
+**Paperford: a local EPUB translator for cleaner bilingual reading copies.**
 
 [中文说明](README_ZH.md)
 
@@ -40,8 +40,8 @@ It is built for people who want more control than a raw machine-translation pass
 ## Quick Start
 
 ```bash
-git clone https://github.com/zommmo/paperford.git
-cd paperford
+git clone https://github.com/zommmo/epub-bilingual-translator.git
+cd epub-bilingual-translator
 ./run_web.sh
 ```
 

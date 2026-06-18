@@ -1,4 +1,4 @@
-# Paperford - 本地 EPUB 双语翻译器
+# EPUB Bilingual Translator - 本地 EPUB 双语翻译器
 
 [English README](README.md)
 
@@ -31,8 +31,8 @@ Paperford 可以理解为 “paper + ford”：把一本书从原文渡到另一
 ## 快速开始
 
 ```bash
-git clone https://github.com/zommmo/paperford.git
-cd paperford
+git clone https://github.com/zommmo/epub-bilingual-translator.git
+cd epub-bilingual-translator
 ./run_web.sh
 ```
 

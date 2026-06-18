@@ -1,7 +1,9 @@
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import os
 
 import config
 from database import clear_cache, init_db
@@ -32,6 +34,13 @@ class HealthRequest(BaseModel):
     api_key: str
     model: str
     target_language: str = config.DEFAULT_TARGET_LANGUAGE
+
+
+def _valid_choice(value: str, choices: list[str], field_name: str) -> str:
+    normalized = (value or "").strip()
+    if normalized not in choices:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be one of: {', '.join(choices)}.")
+    return normalized
 
 
 async def read_epub_upload(file: UploadFile) -> bytes:
@@ -76,6 +85,11 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
         return {
             "providers": BUILTIN_PROVIDERS,
             "target_languages": config.TARGET_LANGUAGES,
+            "translation_profiles": config.TRANSLATION_PROFILES,
+            "style_presets": [
+                {"id": preset_id, "prompt": prompt}
+                for preset_id, prompt in config.STYLE_PRESETS.items()
+            ],
             "defaults": {
                 "model": config.MODEL,
                 "temperature": config.TEMPERATURE,
@@ -84,6 +98,8 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
                 "max_blocks": 0,
                 "target_language": config.DEFAULT_TARGET_LANGUAGE,
                 "thinking_enabled": config.DEFAULT_THINKING_ENABLED,
+                "translation_profile": config.DEFAULT_TRANSLATION_PROFILE,
+                "style_preset": config.DEFAULT_STYLE_PRESET,
             },
         }
 
@@ -163,9 +179,17 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
         glossary: str = Form(""),
         target_language: str = Form(config.DEFAULT_TARGET_LANGUAGE),
         thinking_enabled: bool = Form(config.DEFAULT_THINKING_ENABLED),
+        translation_profile: str = Form(config.DEFAULT_TRANSLATION_PROFILE),
+        style_preset: str = Form(config.DEFAULT_STYLE_PRESET),
         max_blocks: int = Form(0),
     ) -> dict:
         validate_job_parameters(temperature, batch_size, concurrency, max_blocks)
+        translation_profile = _valid_choice(
+            translation_profile,
+            config.TRANSLATION_PROFILES,
+            "translation_profile",
+        )
+        style_preset = _valid_choice(style_preset, list(config.STYLE_PRESETS.keys()), "style_preset")
         epub_bytes = await read_epub_upload(file)
         try:
             return await app.state.manager.create_job(
@@ -181,6 +205,8 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
                 glossary=glossary,
                 target_language=target_language,
                 thinking_enabled=thinking_enabled,
+                translation_profile=translation_profile,
+                style_preset=style_preset,
                 max_blocks=max_blocks,
             )
         except JobConflictError as exc:
@@ -224,6 +250,10 @@ def create_app(manager: SingleJobManager | None = None) -> FastAPI:
     def clear_translation_cache() -> dict:
         cleared = clear_cache(app.state.manager.db_path)
         return {"ok": True, "cleared": cleared}
+
+    frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+    if os.path.isdir(frontend_dist):
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
     return app
 
